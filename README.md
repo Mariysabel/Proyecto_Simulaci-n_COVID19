@@ -1,8 +1,13 @@
 # Simulador Epidemiológico COVID-19 – Oaxaca (2020–2023)
 
+![Badge Tecnologías](https://img.shields.io/badge/React-61DAFB?style=for-the-badge&logo=react&logoColor=white)
+![Badge Lenguaje](https://img.shields.io/badge/JavaScript-F7DF1E?style=for-the-badge&logo=javascript&logoColor=black)
+![Badge Librerías](https://img.shields.io/badge/Recharts-8884d8?style=for-the-badge&logo=react)
+![Badge Datos](https://img.shields.io/badge/CSV_Data-47834C?style=for-the-badge&logo=csv)
+
 Este proyecto implementa un simulador epidemiológico interactivo para analizar la evolución del **COVID-19** en el estado de **Oaxaca**. Utiliza **React**, procesamiento de archivos CSV, gráficas dinámicas y un **modelo SIRD discretizado** para estimar contagios, recuperaciones y defunciones.
 
-El sistema permite visualizar datos reales, generar predicciones mediante regresión lineal y comparar escenarios epidemiológicos a nivel regional.
+El sistema permite visualizar datos reales, generar predicciones mediante regresión lineal y comparar escenarios epidemiológicos a nivel regional, sirviendo como una herramienta de apoyo en la toma de decisiones y el análisis exploratorio en salud pública.
 
 ---
 
@@ -11,7 +16,7 @@ El sistema permite visualizar datos reales, generar predicciones mediante regres
 El simulador fue desarrollado como una herramienta computacional para:
 
 * Analizar la **evolución mensual** del COVID-19 en Oaxaca.
-* Comparar datos reales con estimaciones basadas en **modelos estadísticos**.
+* Comparar datos reales con estimaciones basadas en **modelos estadísticos** (Regresión Lineal).
 * Identificar **picos epidemiológicos** y tendencias por región.
 * Generar **escenarios predictivos** (base, optimista, pesimista).
 * Visualizar mapas regionales, gráficas interactivas y estadísticas epidemiológicas.
@@ -27,18 +32,13 @@ Se integran datos históricos de las **ocho regiones** del estado:
 * Cañada
 * Papaloapan
 
-## 2. Modelo Epidemiológico
+## 2. Modelo Epidemiológico: SIRD Estocástico
 
-El proyecto se basa en un **Modelo SIRD**, que considera:
-
-* **S:** Susceptibles
-* **I:** Infectados
-* **R:** Recuperados
-* **D:** Fallecidos
+El proyecto se basa en un **Modelo SIRD** (Susceptible-Infectado-Recuperado-Defunción), que ha sido adaptado a un entorno discreto.
 
 ### Ecuaciones del Modelo Discretizado
 
-Las ecuaciones del modelo discretizado que representan la dinámica del sistema son:
+El comportamiento general del sistema se basa en las siguientes ecuaciones diferenciales que representan las transiciones entre estados:
 
 $$
 \frac{dS}{dt} = −\beta \cdot \frac{S \cdot I}{N} \\
@@ -47,24 +47,26 @@ $$
 \frac{dD}{dt} = \mu I
 $$
 
-También incorpora **simulación estocástica**, usando:
+Donde: $\beta$ es la tasa de transmisión, $\gamma$ la tasa de recuperación, y $\mu$ la tasa de mortalidad.
 
-* **Distribución exponencial** (tiempo entre contagios)
-* **Distribución normal** (tiempo de recuperación)
-* **Distribución uniforme** (movimiento espacial)
-* **Distribución Bernoulli** (probabilidad de contagio)
+### Simulación Estocástica
 
-Esto permite simular variaciones realistas en el comportamiento epidemiológico.
+Para imitar comportamientos más realistas al incluir variabilidad y la naturaleza probabilística de la transmisión, el simulador incorpora elementos estocásticos utilizando distintas distribuciones:
+
+* **Distribución Exponencial:** Modela el tiempo entre contagios consecutivos.
+* **Distribución Normal:** Se utiliza para representar el tiempo de recuperación de los individuos infectados.
+* **Distribución Uniforme:** Simula la posición y movimiento aleatorio de los individuos dentro de cada región, representando el contacto uniforme.
+* **Distribución Bernoulli:** Determina si un contacto cercano resulta en un contagio efectivo o no.
 
 ## 3. Arquitectura del Sistema
 
-El sistema está construido con módulos independientes:
+El sistema está construido con una arquitectura modular en React, permitiendo la separación de funciones y la gestión eficiente del estado:
 
-1.  **Lector de Datos**: Procesa archivos CSV por año, valida encabezados y normaliza datos regionales y mensuales.
-2.  **Mapa Interactivo**: Muestra las regiones de Oaxaca y representa concentraciones de contagios mediante colorimetría.
-3.  **Sistema de Gráficas**: Incluye gráficos de casos confirmados, defunciones, recuperaciones, comparación Real vs Predicción y escenarios alternos.
-4.  **Comparador Epidemiológico**: Ofrece análisis de regresión lineal por mes y región, error absoluto, error porcentual, Coeficiente **R²**, y mejor/peor mes predictivo.
-5.  **Motor de Simulación**: Implementa el modelo SIRD discretizado y los elementos probabilísticos.
+1.  **Lector de Datos (`DataLoader`):** Módulo encargado de la carga y procesamiento de archivos CSV. Utiliza la librería **PapaParse** para validar encabezados, normalizar y organizar los datos regionales y mensuales.
+2.  **Mapa Interactivo (`MapView`):** Visualización geográfica de las ocho regiones de Oaxaca, representando la concentración de casos mediante colorimetría.
+3.  **Sistema de Gráficas (`Charts`):** Genera gráficas dinámicas de evolución temporal (Casos, Defunciones, Recuperaciones) utilizando la librería **Recharts**.
+4.  **Comparador Epidemiológico (`CovidComparison`):** Componente dedicado al análisis de regresión lineal y métricas de precisión.
+5.  **Motor de Simulación:** Implementa el modelo SIRD discretizado, encargado de actualizar el estado de los individuos en cada iteración.
 
 ## 4. Datos Utilizados
 
@@ -98,31 +100,31 @@ Permite cargar archivos CSV; el sistema verifica estructura y encabezados.
 Representación geográfica de los casos por región.
 
 ### 5.3 Gráficas Dinámicas
-Gráficas comparativas e históricas con datos reales y estimados.
+Gráficas comparativas e históricas con datos reales y estimados, implementadas con **Recharts**.
 
 ### 5.4 Simulación Temporal
 Animación que representa la evolución mes a mes.
 
 ### 5.5 Predicción Epidemiológica
-El sistema genera predicciones empleando **regresión lineal**:
+El sistema genera predicciones empleando **regresión lineal** (`calculateLinearRegression`) para proyectar el año objetivo basado en los datos de al menos 2 años anteriores.
 
-* **Escenario Base**
+* **Escenario Base** (Predicción lineal pura)
 * **Escenario Optimista** (−15%)
 * **Escenario Pesimista** (+25%)
 
 ### 5.6 Comparación Real vs Predicción
-Incluye métricas de precisión como:
+Incluye métricas clave de precisión para validar el modelo de regresión:
 
-* Error Absoluto
-* Error Porcentual
-* **R²**
-* Diferencia mensual entre real y predicción
+* **Error Absoluto y Promedio**
+* **Error Porcentual**
+* **Coeficiente de Determinación (R²):** Mide la proporción de la varianza en los datos reales que es predecible a partir del modelo de regresión lineal. Se calcula como $1 - (SS_{Res} / SS_{Total})$.
+* **Análisis Mensual:** Identifica el mejor y peor mes predictivo.
 
 ---
 
 ## 6. 🖼️ Visualización del Simulador
 
-Aquí puedes ver el simulador en acción, mostrando el mapa interactivo y las gráficas dinámicas.
+Aquí puedes ver el simulador en acción, mostrando el mapa interactivo y las gráficas dinámicas de comparación de predicción.
 
 <p align="center">
   <img src="URL_A_TU_CAPTURA_DE_PANTALLA_O_GIF" alt="Captura de Pantalla del Simulador Epidemiológico" width="800"/>
@@ -135,11 +137,12 @@ Aquí puedes ver el simulador en acción, mostrando el mapa interactivo y las gr
 
 ## 7. 🛠️ Tecnologías Utilizadas
 
-* **React.js**
-* **JavaScript**
-* **Recharts** para gráficas
-* **PapaParse** para lectura de CSV
-* **XLSX.js** para exportación a Excel
+* **React.js** (Framework principal)
+* **JavaScript** (Lenguaje de programación)
+* **Recharts** (Generación de gráficas dinámicas)
+* **PapaParse** (Análisis y lectura de CSV)
+* **XLSX.js** (Librería para exportación de reportes a Excel)
+* **Lucide React** (Iconografía)
 * **HTML5 / CSS3**
 
 ## 8. Estructura del Código
