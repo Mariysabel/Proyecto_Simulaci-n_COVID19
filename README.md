@@ -47,21 +47,35 @@ Donde:
 
 El sistema está construido como una **SPA (Single Page Application)** utilizando React, lo que garantiza una interfaz de usuario reactiva y rápida. La arquitectura se centra en la modularidad para facilitar el mantenimiento y la extensión.
 
-### 3.1 Módulos Clave
+### 3.1 Módulos Clave (Componentes y Servicios)
 
-1.  **Lector de Datos (`DataLoader`):**
-    * Utiliza **PapaParse** para leer y procesar archivos CSV.
-    * Realiza validación de la estructura del archivo y normalización de los campos (`Región`, `Mes`, `Casos Confirmados`, etc.).
-    * Almacena los datos históricos en el estado de la aplicación.
-2.  **Motor de Simulación y Predicción:**
-    * Contiene la lógica del modelo **SIRD discreto**.
-    * Implementa la función `calculateLinearRegression` para la proyección de tendencias.
-3.  **Visualización:**
-    * **`MapView`:** Renderiza la geografía regional.
-    * **`Charts`:** Renderiza los gráficos dinámicos con **Recharts**.
-4.  **Comparador Epidemiológico (`CovidComparison`):**
-    * Presenta las métricas de precisión y el análisis comparativo entre datos reales y los tres escenarios predictivos.
+#### 1. Lector de Datos (`DataLoader.js` / `csvProcessor.js`)
+* **Responsabilidad:** Ingesta de datos históricos y transformación.
+* **Tecnología:** Utiliza **PapaParse** para el análisis eficiente de los archivos CSV por parte del navegador.
+* **Funcionalidad:**
+    * Verifica la integridad de la estructura del archivo (encabezados, número de columnas).
+    * Normaliza los datos, consolidando registros por región y año en un formato estandarizado (JSON) listo para ser consumido por el estado de la aplicación.
+    * Facilita la carga mediante un componente de interfaz simple.
 
+#### 2. Motor de Simulación y Predicción (`regression.js` / Core Logic)
+* **Responsabilidad:** Ejecución de modelos matemáticos y proyecciones estadísticas.
+* **Modelo SIRD:** Se ejecuta discretamente para simular la dinámica poblacional a lo largo del tiempo, tomando en cuenta los parámetros estocásticos definidos.
+* **Modelo Predictivo:** Implementa la función `calculateLinearRegression`. Esta función es crítica para proyectar el crecimiento o decrecimiento de casos en un año objetivo, basándose en la tendencia observada en los años históricos previos (mínimo 2 años).
+
+#### 3. Visualización (`MapView.js` / `Charts.js`)
+* **Responsabilidad:** Renderizar los resultados de forma intuitiva.
+* **`MapView`:** Componente encargado de la representación geográfica de Oaxaca. Utiliza **colorimetría** para reflejar la densidad de los casos confirmados, permitiendo una rápida identificación de las regiones con mayor incidencia (ej. Valles Centrales).
+* **`Charts`:** Utiliza la librería **Recharts** para crear gráficas de alto rendimiento:
+    * **LineChart:** Para series de tiempo (tendencias de Casos, Recuperaciones, Defunciones).
+    * **BarChart:** Para comparaciones regionales y mensuales.
+
+#### 4. Comparador Epidemiológico (`CovidComparison.js`)
+* **Responsabilidad:** Evaluación de la precisión del modelo predictivo y presentación de los escenarios.
+* **Métricas de Validación:** Calcula y despliega el **Coeficiente R²**, el Error Absoluto y el Error Porcentual, permitiendo al usuario juzgar la bondad de ajuste del modelo de regresión.
+* **Interpretación:** Muestra el resultado de los escenarios (Base, Optimista, Pesimista) y utiliza un sistema de **tarjetas informativas**:
+    * Tarjetas rojas: Indican un aumento porcentual de casos interanual.
+    * Tarjetas verdes: Indican una reducción porcentual.
+    * Símbolo ⚡: Indica que el valor mostrado es una proyección (predicción) y no un dato real.
 ## 4. Datos Utilizados y Métricas de Validación
 
 La robustez del simulador se basa en la calidad de los datos históricos ingresados y en las métricas utilizadas para evaluar la precisión de las predicciones.
@@ -92,7 +106,7 @@ El módulo de Regresión Lineal evalúa la fiabilidad de las proyecciones median
     R^2 = 1 - \frac{SS_{Res}}{SS_{Total}}
     $$
 
-## 5. 🖼️ Visualización del Simulador
+## 5. Visualización del Simulador
 
 A continuación, se muestran las vistas principales de la aplicación, destacando la interacción y la presentación de resultados.
 
@@ -139,19 +153,38 @@ Detalle de las proyecciones futuras (Base, Optimista, Pesimista) y su contraste 
 * **Lucide React** (Iconografía modular)
 * **HTML5 / CSS3**
 
-## 8. Estructura del Código
-src/ │── components/ │ ├── MapView/ # Componente de Mapa Interactivo │ ├── Charts/ # Componentes de Gráficas de Tendencia │ ├── CovidComparison/ # Componente de Comparación Real vs Predicción │ └── DataLoader/ # Lector y Procesador de Archivos CSV │ │── utils/ │ ├── regression.js # Lógica de Regresión Lineal y cálculo de R² │ └── csvProcessor.js # Utilidades para normalización de datos │ │── App.js # Núcleo del Sistema y gestión de estado global │── index.js
+## 8. Resultados Principales
 
-## 9. Resultados Principales
+La ejecución del simulador a lo largo del período 2020–2023 y la aplicación del modelo SIRD-Regresión Lineal permitieron obtener una serie de hallazgos significativos sobre la dinámica del COVID-19 en Oaxaca:
 
-El simulador permitió obtener las siguientes conclusiones clave:
+### 8.1 Validación y Consistencia del Modelo SIRD
 
-* **Identificación de Picos:** Se localizaron los picos epidemiológicos con precisión en las distintas regiones y años del período 2020–2023.
-* **Incidencia Regional:** Se confirmó que **Valles Centrales** fue la región con mayor incidencia acumulada.
-* **Validación de Modelo:** El modelo SIRD adaptado mostró tendencias de recuperación y mortalidad consistentes con los reportes oficiales.
-* **Precisión Predictiva:** El modelo de regresión lineal demostró ser útil para la generación de proyecciones de corto plazo con niveles moderados de precisión.
+El modelo SIRD en tiempo discreto, enriquecido con la simulación estocástica, logró reproducir las tendencias epidemiológicas observadas en los datos oficiales.
 
-## 10. ⚙️ Comandos Disponibles
+* **Comportamiento Consistente:** Las curvas de **Recuperaciones** y **Mortalidad** simuladas mostraron una alta coherencia con los reportes de la Secretaría de Salud, validando el uso de las tasas de transición ($\gamma$ y $\mu$) incorporadas.
+* **Identificación de Picos:** El sistema localizó con precisión los **picos epidemiológicos** anuales. Por ejemplo, se observó claramente el impacto de la variante Ómicron a principios de 2022 y la tendencia general de las "olas" de contagio que afectaron a la población estatal.
+
+### 8.2 Análisis de Incidencia Regional
+
+El componente de visualización regional (MapView) y el procesamiento de datos por región confirmaron patrones de concentración de casos bien definidos:
+
+* **Valles Centrales:** Se confirmó como la región con la **mayor incidencia acumulada** de casos confirmados durante todo el período. Este resultado es esperado dada la alta densidad poblacional y la concentración de actividades económicas y administrativas en la zona metropolitana de Oaxaca de Juárez.
+* **Correlación Socio-demográfica:** El simulador indirectamente demostró una fuerte correlación entre la densidad poblacional y la tasa de contagio (factor $S \cdot I / N$ en el modelo), siendo las zonas más pobladas las más afectadas, lo cual refuerza la importancia de la variable espacial en el modelo estocástico.
+
+### 8.3 Precisión de las Predicciones (Regresión Lineal)
+
+El módulo de comparación evaluó la fiabilidad del modelo de regresión lineal para generar proyecciones de corto plazo (Escenarios Base, Optimista, Pesimista).
+
+* **Nivel de Precisión:** El análisis de precisión (Figura 4) arrojó **niveles moderados de precisión** en las predicciones mensuales, con el **Coeficiente R²** variando según la región y el mes. Los valores de R² fueron generalmente más altos en periodos de tendencia estable y menores en puntos de inflexión abruptos (cambios de ola).
+* **Utilidad de Corto Plazo:** Se concluyó que la regresión lineal es una técnica viable para generar proyecciones de **corto plazo** y establecer los límites de los escenarios (±15% y ±25%), proporcionando a los tomadores de decisiones un rango de resultados probables.
+* **Análisis Predictivo Detallado:** El sistema fue capaz de identificar el **"Mejor mes predictivo"** (donde el Error Absoluto fue mínimo) y el **"Peor mes predictivo"** (donde el Error Absoluto fue máximo), lo cual es crucial para la calibración futura del modelo.
+
+### 8.4 Tendencias Generales (2020–2023)
+
+* **Tendencia de Mortalidad:** El análisis mostró una tendencia general de reducción en la tasa de letalidad, particularmente después de la implementación de la campaña de vacunación masiva a partir de 2021.
+* **Variación Interanual:** Las tarjetas de resultado (Figura 4) confirmaron las variaciones porcentuales año contra año, reflejando la transición de la fase pandémica a una fase con menor impacto, pero con rebrotes ocasionales.
+
+## 9. Comandos Disponibles
 
 En este proyecto puedes ejecutar:
 
@@ -167,7 +200,7 @@ Crea una versión optimizada para producción en la carpeta `build`.
 Los archivos se minifican y están listos para desplegar en cualquier servidor web estático.
 Más info en la sección de deployment. 
 
-## 11. Cómo Ejecutar el Proyecto
+## 10. Cómo Ejecutar el Proyecto
 
 1.  **Clonar el repositorio**
     ```bash
@@ -183,11 +216,28 @@ Más info en la sección de deployment.
     ```
 4.  **Cargar los archivos CSV** desde la interfaz. El sistema procesará automáticamente los registros para generar las visualizaciones.
 
-## 12. Conclusiones
+## 11. Conclusiones
 
-El proyecto concluye que la implementación de un modelo SIRD en tiempo discreto, complementado con análisis de regresión lineal y visualización interactiva, constituye una **herramienta funcional y educativa** para el análisis exploratorio de fenómenos epidemiológicos regionales. La simulación estocástica añade una capa de realismo vital para el estudio de sistemas dinámicos de salud.
+Este proyecto no solo funcionó como un ejercicio de simulación computacional, sino que se consolidó como una herramienta funcional y analítica. Las siguientes conclusiones resumen los principales logros y el valor técnico del simulador:
 
-## 13. Integrantes del Proyecto
+### 11.1 Validación y Utilidad del Modelo Híbrido
+
+* **Modelo SIRD Discreto Validado:** La adaptación del Modelo SIRD a un entorno de tiempo discreto demostró ser efectiva para la replicación de las curvas epidemiológicas observadas en Oaxaca. Al incorporar **parámetros estocásticos** (Distribuciones Exponencial, Normal, Uniforme y Bernoulli), el modelo ganó en realismo, permitiendo que la simulación reflejara mejor la variabilidad inherente a los sistemas dinámicos de salud.
+* **Coherencia con Datos Reales:** La integración rigurosa de datos oficiales históricos aseguró que los resultados de la simulación y el análisis estadístico mantuvieran una **alta coherencia** con el comportamiento observado de la pandemia a nivel regional.
+
+### 11.2 Implicaciones en la Regresión y Predicción
+
+* **Regresión Lineal para Proyección:** Se confirmó que la implementación de la **Regresión Lineal** fue una técnica de análisis eficiente para la generación de proyecciones a **corto plazo**.
+* **Establecimiento de Escenarios:** La capacidad del sistema para generar escenarios (Base, Optimista, Pesimista) provee un marco invaluable para el **análisis exploratorio**. Estos escenarios ofrecen a potenciales usuarios (investigadores o decisores) un rango de resultados probables, permitiendo evaluar el riesgo futuro en las tendencias de contagio y mortalidad.
+* **Métricas de Calidad (R²):** El uso del **Coeficiente de Determinación (R²)** dentro del módulo de comparación establece una base transparente para la validación del modelo, permitiendo medir objetivamente el grado de ajuste de la proyección a los datos históricos.
+
+### 11.3 Valor como Herramienta Educativa y de Apoyo
+
+* **Herramienta Funcional:** El simulador es un sistema modular y funcional construido con React, cumpliendo con los requisitos de la ingeniería de software moderna y la visualización de datos.
+* **Impacto Regional:** El análisis segmentado por las ocho regiones de Oaxaca demostró la utilidad de la desagregación de datos. Esto es fundamental para identificar focos de alta incidencia (como Valles Centrales) y priorizar recursos de salud pública de manera efectiva.
+* **Potencial Educativo:** En esencia, el sistema sirve como una **herramienta educativa** de alto valor, permitiendo a estudiantes y analistas interactuar con las variables del modelo SIRD y observar de primera mano cómo las tasas de transmisión y recuperación impactan la dinámica de una epidemia.
+
+## 12. Integrantes del Proyecto
 
 * Angel de Jesús Méndez García
 * Santiago Emmanuel Pérez Jiménez
