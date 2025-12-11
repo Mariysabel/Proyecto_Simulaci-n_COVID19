@@ -1,4 +1,4 @@
-# Simulador Epidemiológico COVID-19 – Oaxaca (2020–2023)
+# Simulador Epidemiológico COVID-19 – Oaxaca (2020–2023) Equipo 13
 
 ![Badge Tecnologías](https://img.shields.io/badge/React-61DAFB?style=for-the-badge&logo=react&logoColor=white)
 ![Badge Lenguaje](https://img.shields.io/badge/JavaScript-F7DF1E?style=for-the-badge&logo=javascript&logoColor=black)
