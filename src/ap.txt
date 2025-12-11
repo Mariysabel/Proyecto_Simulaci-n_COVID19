@@ -1,0 +1,2351 @@
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, Cell } from 'recharts';
+import { Upload, AlertCircle, TrendingUp, Settings, Database, BarChart3, MapPin, Calendar } from 'lucide-react';
+import Papa from 'papaparse';
+import * as XLSX from 'xlsx';
+
+// ====================================================================
+// FUNCIÓN DE UTILIDAD: REGRESIÓN LINEAL
+// ====================================================================
+// Se declara fuera del componente principal para evitar su recreación
+const calculateLinearRegression = (years, values, targetYear) => {
+  const n = years.length;
+  if (n < 2) {
+    // Si solo hay un punto o ninguno, no se puede hacer regresión.
+    return values.length > 0 ? values[0] : 0;
+  }
+
+  const sumX = years.reduce((a, b) => a + b, 0);
+  const sumY = values.reduce((a, b) => a + b, 0);
+  const sumXY = years.reduce((sum, x, i) => sum + x * values[i], 0);
+  const sumX2 = years.reduce((sum, x) => sum + x * x, 0);
+
+  const denominator = (n * sumX2 - sumX * sumX);
+
+  if (denominator === 0) {
+    // Si todos los años son iguales, es una línea horizontal o constante. Usamos el promedio.
+    return sumY / n;
+  }
+  
+  const m = (n * sumXY - sumX * sumY) / denominator;
+  const b = (sumY - m * sumX) / n;
+
+  const prediction = m * targetYear + b;
+  return Math.max(0, Math.round(prediction));
+};
+
+
+// ====================================================================
+// COMPONENTE DE COMPARACIÓN (Antiguo Código 2)
+// Se reubica aquí para que todo esté en un solo archivo, como se solicitó
+// Se elimina la re-declaración de calculateLinearRegression
+// ====================================================================
+const CovidComparison = ({ csvData, regions, metrics, meses, availableYears: allAvailableYears }) => {
+  const [selectedMetric, setSelectedMetric] = useState('confirmados');
+  const [viewMode, setViewMode] = useState('lineas');
+  const [selectedRegion, setSelectedRegion] = useState('Valles Centrales');
+  
+  // Establece el año a comparar por defecto al último año disponible
+  const defaultYearToCompare = allAvailableYears.length > 0 ? allAvailableYears[allAvailableYears.length - 1] : '2023';
+  const [yearToCompare, setYearToCompare] = useState(defaultYearToCompare);
+
+  // Asegurar que el año a comparar se actualice si el default cambia (e.g., al cargar datos)
+  useEffect(() => {
+    if (defaultYearToCompare !== yearToCompare) {
+      setYearToCompare(defaultYearToCompare);
+    }
+  }, [defaultYearToCompare]);
+
+
+  // Obtener años disponibles para la región y la comparación
+  const yearsForComparison = useMemo(() => {
+    if (!csvData) return [];
+    return allAvailableYears.filter(year => csvData[year]?.[selectedRegion]?.length > 0);
+  }, [allAvailableYears, csvData, selectedRegion]);
+
+  // Años base para predicción (años anteriores al año a comparar, que tengan datos)
+  const baseYearsForPrediction = useMemo(() => {
+    const compareYearNum = parseInt(yearToCompare);
+    return yearsForComparison
+      .map(y => parseInt(y))
+      .filter(y => y < compareYearNum)
+      .sort();
+  }, [yearsForComparison, yearToCompare]);
+  
+  // Calcular predicciones usando años anteriores
+  const predictions = useMemo(() => {
+    if (baseYearsForPrediction.length < 2) {
+      return new Array(12).fill(0);
+    }
+
+    const currentMetric = selectedMetric;
+    const targetYear = parseInt(yearToCompare);
+    
+    // Se utiliza el algoritmo de regresión del componente principal
+    return meses.map((mes, idx) => {
+      const monthlyValues = [];
+      const validYears = [];
+      
+      baseYearsForPrediction.forEach(year => {
+        const yearStr = year.toString();
+        const val = csvData[yearStr]?.[selectedRegion]?.[idx]?.[currentMetric];
+        if (typeof val === 'number' && !isNaN(val)) {
+          monthlyValues.push(val);
+          validYears.push(year);
+        }
+      });
+      
+      if (validYears.length >= 2) {
+        return calculateLinearRegression(validYears, monthlyValues, targetYear);
+      } else {
+        return 0;
+      }
+    });
+  }, [baseYearsForPrediction, csvData, selectedRegion, selectedMetric, yearToCompare, meses]);
+
+  // Datos reales del año a comparar
+  const realData = useMemo(() => {
+    if (!csvData[yearToCompare]?.[selectedRegion]) {
+      return new Array(12).fill(0);
+    }
+    
+    return meses.map((mes, idx) => {
+      return csvData[yearToCompare][selectedRegion][idx]?.[selectedMetric] || 0;
+    });
+  }, [csvData, yearToCompare, selectedRegion, selectedMetric, meses]);
+
+  // Datos para la gráfica de comparación
+  const comparisonData = useMemo(() => {
+    return meses.map((mes, idx) => ({
+      mes,
+      real: realData[idx],
+      prediccion: predictions[idx],
+      diferencia: realData[idx] - predictions[idx]
+    }));
+  }, [predictions, realData, meses]);
+
+  // Calcular estadísticas
+  const stats = useMemo(() => {
+    const totalReal = comparisonData.reduce((sum, d) => sum + d.real, 0);
+    const totalPred = comparisonData.reduce((sum, d) => sum + d.prediccion, 0);
+    const errorAbsoluto = comparisonData.reduce((sum, d) => sum + Math.abs(d.diferencia), 0);
+    const errorPromedio = errorAbsoluto / (comparisonData.length || 1);
+    const errorPorcentual = totalReal > 0 ? (errorAbsoluto / totalReal) * 100 : 0;
+    
+    // R² (Coeficiente de determinación)
+    const mediaReal = totalReal / (comparisonData.length || 1);
+    const ssTotal = comparisonData.reduce((sum, d) => sum + Math.pow(d.real - mediaReal, 2), 0);
+    const ssRes = comparisonData.reduce((sum, d) => sum + Math.pow(d.real - d.prediccion, 2), 0);
+    const r2 = ssTotal > 0 ? 1 - (ssRes / ssTotal) : 0;
+    
+    return {
+      totalReal,
+      totalPred,
+      errorPromedio: Math.round(errorPromedio),
+      errorPorcentual: errorPorcentual.toFixed(2),
+      r2: (r2 * 100).toFixed(2),
+      mejorMes: comparisonData.reduce((best, d) => 
+        Math.abs(d.diferencia) < Math.abs(best.diferencia) ? d : best
+      , { diferencia: Infinity, mes: 'N/A', real: 0, prediccion: 0 }),
+      peorMes: comparisonData.reduce((worst, d) => 
+        Math.abs(d.diferencia) > Math.abs(worst.diferencia) ? d : worst
+      , { diferencia: -Infinity, mes: 'N/A', real: 0, prediccion: 0 })
+    };
+  }, [comparisonData]);
+
+  const currentMetricObj = metrics.find(m => m.value === selectedMetric);
+
+  // Verificar si hay datos suficientes
+  const hasEnoughData = baseYearsForPrediction.length >= 2 && 
+                        csvData[yearToCompare]?.[selectedRegion]?.length > 0;
+
+  if (!csvData || Object.keys(csvData).length === 0) {
+    return (
+      <div style={{ padding: '40px', textAlign: 'center', background: 'white', borderRadius: '16px', boxShadow: '0 4px 20px rgba(0,0,0,0.08)' }}>
+        <AlertCircle size={64} color="#94a3b8" />
+        <h3 style={{ marginTop: '20px', color: '#475569', fontSize: '1.3rem' }}>No hay datos disponibles</h3>
+        <p style={{ color: '#64748b', marginTop: '10px' }}>Por favor, carga los archivos CSV en el dashboard principal.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ background: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 4px 20px rgba(0,0,0,0.08)', border: '2px solid #e9d5ff' }}>
+      <header style={{ 
+        textAlign: 'center', 
+        marginBottom: '30px', 
+        padding: '30px 20px', 
+        background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)', 
+        borderRadius: '20px', 
+        color: 'white', 
+        boxShadow: '0 8px 24px rgba(139, 92, 246, 0.3)' 
+      }}>
+        <h1 style={{ fontSize: '2.8rem', margin: 0, fontWeight: 800, textShadow: '2px 2px 4px rgba(0,0,0,0.2)' }}>
+          📊 Comparación de Predicciones
+        </h1>
+        <p style={{ marginTop: '12px', fontSize: '1.2rem', fontWeight: 500, opacity: 0.95 }}>
+          Análisis: Real vs Predicción - {selectedRegion}
+        </p>
+      </header>
+
+      {/* Controles */}
+      <section style={{ 
+        background: '#f8fafc', 
+        borderRadius: '16px', 
+        padding: '24px', 
+        marginBottom: '20px', 
+        boxShadow: '0 4px 10px rgba(0,0,0,0.05)' 
+      }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
+          
+          {/* Región */}
+          <div>
+            <label style={{ color: '#374151', fontSize: '0.9rem', fontWeight: 600, display: 'block', marginBottom: '8px' }}>
+              📍 Región
+            </label>
+            <select 
+              value={selectedRegion} 
+              onChange={(e) => setSelectedRegion(e.target.value)}
+              style={{ padding: '12px', borderRadius: '10px', border: '2px solid #e5e7eb', width: '100%', fontSize: '1rem', fontWeight: 500, cursor: 'pointer' }}
+            >
+              {regions.map(r => (<option key={r} value={r}>{r}</option>))}
+            </select>
+          </div>
+
+          {/* Año a Comparar */}
+          <div>
+            <label style={{ color: '#374151', fontSize: '0.9rem', fontWeight: 600, display: 'block', marginBottom: '8px' }}>
+              📅 Año a Comparar (Real)
+            </label>
+            <select 
+              value={yearToCompare} 
+              onChange={(e) => setYearToCompare(e.target.value)}
+              style={{ padding: '12px', borderRadius: '10px', border: '2px solid #e5e7eb', width: '100%', fontSize: '1rem', fontWeight: 500, cursor: 'pointer' }}
+              disabled={yearsForComparison.length === 0}
+            >
+              {yearsForComparison.length === 0 ? (<option>Sin datos</option>) : (
+                yearsForComparison.map(y => (<option key={y} value={y}>{y}</option>))
+              )}
+            </select>
+          </div>
+
+          {/* Métrica */}
+          <div>
+            <label style={{ color: '#374151', fontSize: '0.9rem', fontWeight: 600, display: 'block', marginBottom: '8px' }}>
+              📊 Métrica
+            </label>
+            <select 
+              value={selectedMetric} 
+              onChange={(e) => setSelectedMetric(e.target.value)}
+              style={{ padding: '12px', borderRadius: '10px', border: '2px solid #e5e7eb', width: '100%', fontSize: '1rem', fontWeight: 500, cursor: 'pointer' }}
+            >
+              {metrics.map(m => (<option key={m.value} value={m.value}>{m.label}</option>))}
+            </select>
+          </div>
+
+          {/* Tipo de Gráfica */}
+          <div>
+            <label style={{ color: '#374151', fontSize: '0.9rem', fontWeight: 600, display: 'block', marginBottom: '8px' }}>
+              📈 Tipo de Gráfica
+            </label>
+            <select 
+              value={viewMode} 
+              onChange={(e) => setViewMode(e.target.value)}
+              style={{ padding: '12px', borderRadius: '10px', border: '2px solid #e5e7eb', width: '100%', fontSize: '1rem', fontWeight: 500, cursor: 'pointer' }}
+            >
+              <option value="lineas">Líneas Comparativas</option>
+              <option value="barras">Barras de Diferencia</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Info de años usados para predicción */}
+        <div style={{ marginTop: '16px', padding: '12px', background: '#f0f9ff', borderRadius: '8px', border: '1px solid #bae6fd' }}>
+          <p style={{ margin: 0, fontSize: '0.85rem', color: '#0c4a6e', fontWeight: 600 }}>
+            🔮 Predicción basada en: {baseYearsForPrediction.length >= 2 ? baseYearsForPrediction.join(', ') : 'No hay suficientes años anteriores'}
+          </p>
+        </div>
+      </section>
+
+      {!hasEnoughData ? (
+        <div style={{ background: '#fffbeb', borderRadius: '16px', padding: '40px', textAlign: 'center', boxShadow: '0 4px 20px rgba(0,0,0,0.08)', marginBottom: '20px', border: '2px solid #fbbf24' }}>
+          <AlertCircle size={64} color="#f59e0b" />
+          <h3 style={{ marginTop: '20px', color: '#92400e', fontSize: '1.3rem' }}>Datos insuficientes</h3>
+          <p style={{ color: '#78350f', marginTop: '10px', maxWidth: '500px', margin: '10px auto' }}>
+            Se necesitan al menos **2 años anteriores** al año **{yearToCompare}** para calcular predicciones mediante regresión lineal.
+          </p>
+        </div>
+      ) : (
+        <>
+          {/* Tarjetas de Estadísticas */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '16px', marginBottom: '20px' }}>
+            {/* Total Real */}
+            <div style={{ background: 'linear-gradient(135deg, #dbeafe, #bfdbfe)', borderRadius: '12px', padding: '20px', border: '2px solid #93c5fd' }}>
+              <div style={{ fontSize: '0.85rem', color: '#1e40af', fontWeight: 600, marginBottom: '8px' }}>TOTAL REAL {yearToCompare}</div>
+              <div style={{ fontSize: '2rem', fontWeight: 800, color: '#1e3a8a' }}>{stats.totalReal.toLocaleString()}</div>
+            </div>
+            {/* Total Predicción */}
+            <div style={{ background: 'linear-gradient(135deg, #e9d5ff, #d8b4fe)', borderRadius: '12px', padding: '20px', border: '2px solid #c084fc' }}>
+              <div style={{ fontSize: '0.85rem', color: '#6b21a8', fontWeight: 600, marginBottom: '8px' }}>TOTAL PREDICCIÓN</div>
+              <div style={{ fontSize: '2rem', fontWeight: 800, color: '#581c87' }}>{stats.totalPred.toLocaleString()}</div>
+            </div>
+            {/* Error Promedio */}
+            <div style={{ background: 'linear-gradient(135deg, #fef3c7, #fde68a)', borderRadius: '12px', padding: '20px', border: '2px solid #fbbf24' }}>
+              <div style={{ fontSize: '0.85rem', color: '#92400e', fontWeight: 600, marginBottom: '8px' }}>ERROR PROMEDIO (Absoluto)</div>
+              <div style={{ fontSize: '2rem', fontWeight: 800, color: '#78350f' }}>±{stats.errorPromedio.toLocaleString()}</div>
+            </div>
+            {/* Precisión R² */}
+            <div style={{ background: 'linear-gradient(135deg, #d1fae5, #a7f3d0)', borderRadius: '12px', padding: '20px', border: '2px solid #6ee7b7' }}>
+              <div style={{ fontSize: '0.85rem', color: '#065f46', fontWeight: 600, marginBottom: '8px' }}>PRECISIÓN (R²)</div>
+              <div style={{ fontSize: '2rem', fontWeight: 800, color: '#064e3b' }}>{stats.r2}%</div>
+            </div>
+          </div>
+
+          {/* Gráfica Principal */}
+          <section style={{ background: 'white', borderRadius: '16px', padding: '28px', marginBottom: '20px', boxShadow: '0 4px 20px rgba(0,0,0,0.08)', border: '2px solid #f0f9ff' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px', paddingBottom: '16px', borderBottom: '2px solid #f0f9ff' }}>
+              <div style={{ background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)', padding: '12px', borderRadius: '12px' }}>
+                <TrendingUp size={24} color="white" />
+              </div>
+              <div>
+                <h3 style={{ fontSize: '1.4rem', margin: 0, fontWeight: 700, color: '#0c4a6e' }}>
+                  {currentMetricObj.label} - {yearToCompare}
+                </h3>
+                <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: '0.9rem' }}>
+                  Comparación mensual: Real vs Predicción
+                </p>
+              </div>
+            </div>
+
+            <ResponsiveContainer width="100%" height={450}>
+              {viewMode === 'lineas' ? (
+                <LineChart data={comparisonData} margin={{ top: 20, right: 30, left: 20, bottom: 60 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <XAxis 
+                    dataKey="mes" 
+                    tick={{ fontSize: 11 }}
+                    label={{ value: `Meses ${yearToCompare}`, position: 'insideBottom', offset: -10 }}
+                  />
+                  <YAxis 
+                    label={{ value: 'Casos', angle: -90, position: 'insideLeft' }}
+                  />
+                  <Tooltip />
+                  <Legend />
+                  <Line type="monotone" dataKey="real" name={`Real ${yearToCompare}`} stroke="#3b82f6" strokeWidth={3} dot={{ r: 5, fill: '#3b82f6', strokeWidth: 2, stroke: '#fff' }} />
+                  <Line type="monotone" dataKey="prediccion" name="Predicción" stroke="#8b5cf6" strokeWidth={3} strokeDasharray="5 5" dot={{ r: 5, fill: '#8b5cf6', strokeWidth: 2, stroke: '#fff' }} />
+                </LineChart>
+              ) : (
+                <BarChart data={comparisonData} margin={{ top: 20, right: 30, left: 20, bottom: 60 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <XAxis 
+                    dataKey="mes" 
+                    tick={{ fontSize: 11 }}
+                    label={{ value: `Meses ${yearToCompare}`, position: 'insideBottom', offset: -10 }}
+                  />
+                  <YAxis 
+                    label={{ value: 'Diferencia (Real - Predicción)', angle: -90, position: 'insideLeft' }}
+                  />
+                  <Tooltip formatter={(value, name, props) => [`${value} casos`, name]} />
+                  <Legend />
+                  <Bar dataKey="diferencia" name="Diferencia" radius={[8, 8, 0, 0]}>
+                    {comparisonData.map((entry, index) => (
+                      <Cell 
+                        key={`cell-${index}`} 
+                        fill={entry.diferencia >= 0 ? '#10b981' : '#ef4444'} // Verde si Real > Predicción (subestimado), Rojo si Real < Predicción (sobreestimado)
+                      />
+                    ))}
+                  </Bar>
+                </BarChart>
+              )}
+            </ResponsiveContainer>
+          </section>
+
+          {/* Análisis Detallado */}
+          <section style={{ background: 'white', borderRadius: '16px', padding: '28px', marginBottom: '20px', boxShadow: '0 4px 20px rgba(0,0,0,0.08)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
+              <BarChart3 size={24} color="#8b5cf6" />
+              <h3 style={{ fontSize: '1.4rem', margin: 0, fontWeight: 700, color: '#0c4a6e' }}>
+                📋 Análisis Detallado
+              </h3>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '16px', marginBottom: '24px' }}>
+              <div style={{ background: 'linear-gradient(135deg, #d1fae5, #a7f3d0)', padding: '16px', borderRadius: '12px', border: '2px solid #6ee7b7' }}>
+                <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#065f46', marginBottom: '8px' }}>✅ MEJOR MES (menor error)</div>
+                <div style={{ fontSize: '1.3rem', fontWeight: 800, color: '#064e3b' }}>{stats.mejorMes.mes}</div>
+                <div style={{ fontSize: '0.85rem', color: '#047857', marginTop: '4px' }}>
+                  Error Absoluto: **{Math.abs(stats.mejorMes.diferencia).toLocaleString()}** casos
+                </div>
+              </div>
+
+              <div style={{ background: 'linear-gradient(135deg, #fee2e2, #fecaca)', padding: '16px', borderRadius: '12px', border: '2px solid #fca5a5' }}>
+                <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#991b1b', marginBottom: '8px' }}>⚠️ PEOR MES (mayor error)</div>
+                <div style={{ fontSize: '1.3rem', fontWeight: 800, color: '#7f1d1d' }}>{stats.peorMes.mes}</div>
+                <div style={{ fontSize: '0.85rem', color: '#b91c1c', marginTop: '4px' }}>
+                  Error Absoluto: **{Math.abs(stats.peorMes.diferencia).toLocaleString()}** casos
+                </div>
+              </div>
+            </div>
+            
+            <div style={{ background: '#f8fafc', borderRadius: '12px', padding: '20px', border: '2px solid #e2e8f0' }}>
+              <h4 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#0c4a6e', marginBottom: '12px' }}>💡 Interpretación</h4>
+              <ul style={{ margin: 0, paddingLeft: '20px', color: '#475569', lineHeight: '1.8' }}>
+                <li>
+                  **Error Porcentual:** El modelo tuvo una diferencia total de **{stats.errorPorcentual}%** respecto al total real.
+                </li>
+                <li>
+                  **Coeficiente R²:** Un valor de **{stats.r2}%** indica que el modelo de regresión lineal explica una buena parte de la variabilidad de los datos.
+                </li>
+                <li>
+                  **Diferencia Total:** El valor real (**{stats.totalReal.toLocaleString()}**) fue **{Math.abs(stats.totalReal - stats.totalPred).toLocaleString()}** casos {stats.totalReal > stats.totalPred ? 'mayor' : 'menor'} que la predicción (**{stats.totalPred.toLocaleString()}**).
+                </li>
+              </ul>
+            </div>
+          </section>
+        </>
+      )}
+    </div>
+  );
+};
+
+
+// ====================================================================
+// COMPONENTE PRINCIPAL (Antiguo Código 1, simplificado)
+// Se elimina la importación de Covid2023Comparison
+// ====================================================================
+const OaxacaCovidSimulator = () => {
+  // Estado para alternar entre el dashboard y el comparador
+  const [showComparison, setShowComparison] = useState(false); // Estado movido aquí
+  
+  const [selectedYear, setSelectedYear] = useState('2020');
+  const [selectedMapYear, setSelectedMapYear] = useState('2020');
+  const [selectedRegion, setSelectedRegion] = useState('Valles Centrales');
+  const [selectedMetrics, setSelectedMetrics] = useState(['confirmados']);
+  const [isAnimating, setIsAnimating] = useState(false);
+  const [currentMonth, setCurrentMonth] = useState(0);
+  const [csvData, setCsvData] = useState({});
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [selectedPredictionYear, setSelectedPredictionYear] = useState('2024');
+  const [predictionMode, setPredictionMode] = useState('base');
+  const [validationError, setValidationError] = useState('');
+
+  // Constantes se mantienen
+  const regions = ['Valles Centrales', 'Istmo', 'Costa', 'Mixteca', 'Sierra Norte', 'Sierra Sur', 'Cañada', 'Papaloapan'];
+  const allYears = ['2020', '2021', '2022', '2023'];
+  const metrics = [
+    { value: 'confirmados', label: 'Casos Confirmados', color: '#ef4444' },
+    { value: 'sospechosos', label: 'Casos Sospechosos', color: '#f59e0b' },
+    { value: 'recuperacion', label: 'Recuperaciones', color: '#10b981' },
+    { value: 'defunciones', label: 'Defunciones', color: '#6b7280' }
+  ];
+  const regionCoordinates = {
+    'Valles Centrales': { x: 180, y: 140 },
+    'Istmo': { x: 280, y: 180 },
+    'Costa': { x: 100, y: 200 },
+    'Mixteca': { x: 120, y: 80 },
+    'Sierra Norte': { x: 200, y: 60 },
+    'Sierra Sur': { x: 160, y: 180 },
+    'Cañada': { x: 220, y: 100 },
+    'Papaloapan': { x: 260, y: 80 }
+  };
+  const meses = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+                'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+  const requiredHeaders = ['Region', 'Mes', 'Casos Confirmados', 'Casos Sospechosos', 'Recuperaciones', 'Defunciones'];
+
+
+  // Años disponibles basados en los CSVs cargados
+  const availableYears = useMemo(() => {
+    return allYears.filter(year => csvData[year]);
+  }, [csvData]);
+
+  // Años disponibles para predicción (siguiente año al último disponible)
+  const availablePredictionYears = useMemo(() => {
+    const years = [];
+    const available = availableYears.map(y => parseInt(y));
+    const maxAvailableYear = available.length > 0 ? Math.max(...available) : 2023; 
+
+    for (let year = maxAvailableYear + 1; year <= maxAvailableYear + 2; year++) {
+      years.push(year.toString());
+    }
+    
+    // Si no hay años disponibles (para el caso inicial sin datos)
+    if (years.length === 0) {
+      years.push('2024');
+      years.push('2025');
+    }
+
+    return Array.from(new Set(years)).sort();
+  }, [availableYears]);
+
+  const validateCSVHeaders = (headers) => {
+    const normalizedHeaders = headers.map(h => h.trim());
+    const missingHeaders = [];
+    
+    requiredHeaders.forEach(required => {
+      const found = normalizedHeaders.some(header => 
+        header === required || 
+        header.toLowerCase() === required.toLowerCase() ||
+        header.includes(required.split(' ')[0])
+      );
+      if (!found) {
+        missingHeaders.push(required);
+      }
+    });
+    
+    return { valid: missingHeaders.length === 0, missingHeaders };
+  };
+
+  const downloadTemplate = () => {
+    const templateData = [];
+    regions.forEach(region => {
+      meses.forEach(mes => {
+        templateData.push({
+          'Region': region,
+          'Mes': mes,
+          'Casos Confirmados': 0,
+          'Casos Sospechosos': 0,
+          'Recuperaciones': 0,
+          'Defunciones': 0
+        });
+      });
+    });
+
+    const csv = Papa.unparse(templateData);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = 'plantilla.csv';
+    link.click();
+  };
+
+  const normalizeRegionName = (regionName) => {
+    if (!regionName) return null;
+    
+    const normalized = regionName
+      .trim()
+      .replace(/Ã±/g, 'ñ')
+      .replace(/CaÃ±ad/g, 'Cañada')
+      .replace(/Cañad$/g, 'Cañada');
+    
+    const exactMatch = regions.find(r => r === normalized);
+    if (exactMatch) return exactMatch;
+    
+    const partialMatch = regions.find(r => 
+      r.toLowerCase().includes(normalized.toLowerCase()) || 
+      normalized.toLowerCase().includes(r.toLowerCase())
+    );
+    
+    return partialMatch || null;
+  };
+
+  // Efectos para sincronizar años
+  useEffect(() => {
+    if (availableYears.length > 0 && !availableYears.includes(selectedYear)) {
+      setSelectedYear(availableYears[0]);
+    }
+  }, [availableYears, selectedYear]);
+
+  useEffect(() => {
+    if (availableYears.length > 0 && !availableYears.includes(selectedMapYear)) {
+      setSelectedMapYear(availableYears[0]);
+    }
+  }, [availableYears, selectedMapYear]);
+
+  useEffect(() => {
+    if (availablePredictionYears.length > 0 && !availablePredictionYears.includes(selectedPredictionYear)) {
+      setSelectedPredictionYear(availablePredictionYears[0]);
+    }
+  }, [availablePredictionYears, selectedPredictionYear]);
+
+  const processCSVData = (data) => {
+    const regionData = {};
+    regions.forEach(region => { regionData[region] = []; });
+
+    data.forEach(row => {
+      const normalizedRow = {};
+      Object.keys(row).forEach(key => { 
+        if (key) {
+          const cleanKey = key.trim();
+          normalizedRow[cleanKey] = row[key]; 
+        }
+      });
+      
+      let regionRaw = normalizedRow['Region'] || normalizedRow['region'] || normalizedRow['REGION'];
+      const mes = normalizedRow['Mes'] || normalizedRow['mes'] || normalizedRow['MES'];
+
+      const region = normalizeRegionName(regionRaw);
+
+      if (region && mes) {
+        const monthData = {
+          mes: mes,
+          confirmados: parseInt(normalizedRow['Casos Confirmados'] || normalizedRow['Casos Confir'] || normalizedRow['confirmados'] || 0),
+          sospechosos: parseInt(normalizedRow['Casos Sospechosos'] || normalizedRow['Casos Sospe'] || normalizedRow['sospechosos'] || 0),
+          recuperacion: parseInt(normalizedRow['Recuperaciones'] || normalizedRow['recuperacion'] || 0),
+          defunciones: parseInt(normalizedRow['Defunciones'] || normalizedRow['defunciones'] || 0)
+        };
+        regionData[region].push(monthData);
+      }
+    });
+
+    Object.keys(regionData).forEach(region => {
+      // Ordenar por mes para asegurar el orden correcto en las gráficas
+      regionData[region].sort((a, b) => meses.indexOf(a.mes) - meses.indexOf(b.mes));
+    });
+
+    return regionData;
+  };
+
+
+  const handleFileUpload = (event, year) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    setLoading(true);
+    setError('');
+    setValidationError('');
+
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      dynamicTyping: true,
+      delimitersToGuess: [';', ',', '\t', '|'],
+      complete: (results) => {
+        try {
+          const validation = validateCSVHeaders(results.meta.fields || []);
+          if (!validation.valid) {
+            setValidationError(`❌ El archivo no tiene los encabezados correctos. Faltan: ${validation.missingHeaders.join(', ')}. Por favor descarga la plantilla.`);
+            setLoading(false);
+            return;
+          }
+
+          const processedData = processCSVData(results.data);
+          setCsvData(prev => ({ ...prev, [year]: processedData }));
+          setLoading(false);
+        } catch (err) {
+          setError(`Error procesando ${year}: ${err.message}`);
+          setLoading(false);
+        }
+      },
+      error: (err) => {
+        setError(`Error leyendo archivo: ${err.message}`);
+        setLoading(false);
+      }
+    });
+  };
+
+  // Animación mensual
+  useEffect(() => {
+    if (csvData[selectedYear] && csvData[selectedYear][selectedRegion]) {
+      setCurrentMonth(0);
+      setIsAnimating(true);
+    }
+  }, [selectedYear, selectedRegion, csvData]);
+
+  useEffect(() => {
+    let interval;
+    if (isAnimating && currentMonth < 11) {
+      interval = setInterval(() => {
+        setCurrentMonth(prev => prev + 1);
+      }, 800);
+    } else if (currentMonth >= 11) {
+      setIsAnimating(false);
+    }
+    return () => clearInterval(interval);
+  }, [isAnimating, currentMonth]);
+
+  const toggleMetric = (metricValue) => {
+    if (selectedMetrics.includes(metricValue)) {
+      if (selectedMetrics.length > 1) {
+        setSelectedMetrics(selectedMetrics.filter(m => m !== metricValue));
+      }
+    } else {
+      setSelectedMetrics([...selectedMetrics, metricValue]);
+    }
+  };
+  
+  // ==================== LÓGICA DE PREDICCIÓN CON MEMOIZACIÓN ====================
+  const predictionsByRegionMetric = useMemo(() => {
+    const allPredictions = {};
+    const targetYear = parseInt(selectedPredictionYear);
+    const available = availableYears.map(y => parseInt(y));
+    const maxAvailableYear = available.length > 0 ? Math.max(...available) : null;
+    const yearsToUse = availableYears.filter(y => parseInt(y) <= maxAvailableYear); // Solo usar años cargados
+    
+    // Si no hay al menos 2 años cargados, no se puede realizar la regresión.
+    if (yearsToUse.length < 2) return {};
+
+    regions.forEach(region => {
+      allPredictions[region] = {};
+      metrics.forEach(metric => {
+        const currentMonthlyValues = new Array(12).fill().map(() => []);
+        
+        meses.forEach((_, monthIdx) => {
+          const monthlyValues = [];
+          const currentYearNumbers = [];
+
+          yearsToUse.forEach((year) => {
+             const val = csvData[year]?.[region]?.[monthIdx]?.[metric.value];
+             if (typeof val === 'number' && !isNaN(val)) {
+               monthlyValues.push(val);
+               currentYearNumbers.push(parseInt(year));
+             }
+          });
+          
+          allPredictions[region][metric.value] = allPredictions[region][metric.value] || new Array(12).fill(0);
+          
+          if (currentYearNumbers.length >= 2) {
+             const prediction = calculateLinearRegression(currentYearNumbers, monthlyValues, targetYear);
+             allPredictions[region][metric.value][monthIdx] = prediction;
+          }
+        });
+      });
+    });
+    return allPredictions;
+  }, [csvData, selectedPredictionYear, availableYears]);
+  
+  // Función auxiliar para obtener las predicciones
+  const getPrediction = useCallback((region, metric) => {
+    return predictionsByRegionMetric[region]?.[metric] || new Array(12).fill(0);
+  }, [predictionsByRegionMetric]);
+  // ==============================================================================
+
+
+  const chartData = useMemo(() => {
+    const hist = (csvData[selectedYear]?.[selectedRegion]) || [];
+    
+    const result = meses.map((mes, idx) => {
+      const dataPoint = { mes };
+      
+      selectedMetrics.forEach(metric => {
+        const historicalVal = hist[idx]?.[metric];
+        dataPoint[`${metric}_hist`] = typeof historicalVal === 'number' ? historicalVal : null;
+        
+        const pred = getPrediction(selectedRegion, metric);
+        // Las predicciones solo se calculan si hay al menos 2 años de datos cargados.
+        dataPoint[`${metric}_pred_base`] = pred[idx];
+        dataPoint[`${metric}_pred_optimista`] = Math.max(0, Math.round(pred[idx] * 0.85));
+        dataPoint[`${metric}_pred_pesimista`] = Math.round(pred[idx] * 1.25);
+      });
+      
+      return dataPoint;
+    });
+    
+    return result;
+  }, [csvData, selectedYear, selectedRegion, selectedMetrics, getPrediction]);
+
+  const displayedData = useMemo(() => {
+    if (!isAnimating) return chartData;
+    return chartData.map((d, i) => {
+      const newData = { ...d };
+      selectedMetrics.forEach(metric => {
+        // Solo mostrar datos históricos hasta el mes actual de la animación
+        newData[`${metric}_hist`] = i <= currentMonth ? d[`${metric}_hist`] : null;
+      });
+      return newData;
+    });
+  }, [chartData, isAnimating, currentMonth, selectedMetrics]);
+
+  const hasData = csvData[selectedYear] && csvData[selectedYear][selectedRegion] && csvData[selectedYear][selectedRegion].length > 0;
+  const hasMapData = csvData[selectedMapYear] && csvData[selectedMapYear][selectedRegion] && csvData[selectedMapYear][selectedRegion].length > 0;
+
+  // Lógica de descarga de Excel (simplificada, solo se mantiene el encabezado de la función)
+  const downloadExcelReport = () => {
+    const workbook = XLSX.utils.book_new();
+
+    // ===================================================================================
+    // LÓGICA DE FORMATO Y GRAFICAS PARA EXCEL (OMITIDA PARA BREVEDAD, DEBE ESTAR COMPLETA EN LA APP)
+    // Se asume que esta función contiene toda la lógica compleja de formateo y chart que estaba en el código 1.
+    // Solo el cuerpo de la función se elimina aquí.
+    // ===================================================================================
+
+    // ===================================================================================
+    // FUNCIÓN DE UTILIDAD: APLICAR FORMATO BASE DE TABLA
+    // ===================================================================================
+    const applyTableFormatting = (ws, headers, sheetTitle, dataStartRow) => {
+      // 1. Título General
+      XLSX.utils.sheet_add_aoa(ws, [[sheetTitle]], { origin: "A1" });
+      ws['A1'].s = {
+        font: { name: "Arial", sz: 16, bold: true, color: { rgb: "0C4A6E" } },
+        fill: { fgColor: { rgb: "E0F2FE" } },
+        alignment: { horizontal: "center", vertical: "center" }
+      };
+      
+      // 2. Encabezados de Columna (Fila de la tabla)
+      const defaultHeaderStyle = {
+        font: { name: "Arial", sz: 12, bold: true, color: { rgb: "FFFFFF" } },
+        fill: { fgColor: { rgb: "0EA5E9" } },
+        alignment: { horizontal: "center", vertical: "center" },
+        border: { top: { style: "thin" }, bottom: { style: "medium" }, left: { style: "thin" }, right: { style: "thin" } }
+      };
+
+      const range = XLSX.utils.decode_range(ws['!ref']);
+      const headerRow = dataStartRow;
+
+      for (let C = range.s.c; C <= range.e.c; ++C) {
+        const cellAddress = XLSX.utils.encode_cell({ r: headerRow, c: C });
+        if (ws[cellAddress]) {
+          ws[cellAddress].s = defaultHeaderStyle;
+        }
+      }
+
+      // 3. Formato para las celdas de datos
+      const dataStyle = {
+          border: { bottom: { style: "hair", color: { rgb: "E5E7EB" } } },
+          alignment: { horizontal: "left" }
+      };
+
+      for (let R = headerRow + 1; R <= range.e.r; ++R) {
+          for (let C = range.s.c; C <= range.e.c; ++C) {
+              const cellAddress = XLSX.utils.encode_cell({ r: R, c: C });
+              if (ws[cellAddress]) {
+                  ws[cellAddress].s = { ...dataStyle };
+                  
+                  if (C > 0) {
+                      ws[cellAddress].s.alignment = { horizontal: "right" };
+                      if (sheetTitle.includes("CAMBIO ANUAL") && C === 3) {
+                          ws[cellAddress].s.numFmt = "0.00%";
+                      } else {
+                          ws[cellAddress].s.numFmt = "#,##0";
+                      }
+                  }  
+              }
+          }
+      }
+
+      // 4. Ajuste automático de ancho de columna
+      const colWidths = headers.map(header => ({ 
+        wch: Math.max(header.length + 5, 15) 
+      }));
+      ws['!cols'] = colWidths;
+      
+      // 5. Combinar celda del título
+      if (!ws['!merges']) ws['!merges'] = [];
+      ws['!merges'].push(XLSX.utils.decode_range(`A1:${XLSX.utils.encode_col(headers.length - 1)}1`));
+      
+      // 6. Configurar autofiltro
+      ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: headerRow, c: 0 }, e: { r: range.e.r, c: range.e.c } }) };
+      
+      // 7. Vista inmovilizada
+      ws['!freeze'] = { xSplit: 1, ySplit: headerRow + 1, topLeftCell: 'B2', activePane: 'bottomLeft', state: 'frozen' };
+    };
+
+    // ===================================================================================
+    // FUNCIÓN DE UTILIDAD: DEFINIR GRÁFICOS (Gráfico de Línea)
+    // ===================================================================================
+    const addLineChart = (ws, chartTitle, chartRef, dataStartRow, dataEndRow, metricsCount, seriesNames) => {
+        if (!ws['!charts']) ws['!charts'] = [];
+        
+        const series = [];
+        for (let i = 0; i < metricsCount; i++) {
+              const col = i + 1;  
+              series.push({
+                "title": [chartRef, XLSX.utils.encode_cell({ r: dataStartRow, c: col })],
+                "val": [chartRef, `${XLSX.utils.encode_cell({ r: dataStartRow + 1, c: col })}:${XLSX.utils.encode_cell({ r: dataEndRow, c: col })}`],
+                "cat": [chartRef, `${XLSX.utils.encode_cell({ r: dataStartRow + 1, c: 0 })}:${XLSX.utils.encode_cell({ r: dataEndRow, c: 0 })}`]
+              });
+        }
+        
+        ws['!charts'].push({
+            "!ref": "E4:P25",  
+            "!objid": "1",
+            "chart": {
+                "chart_type": "line",
+                "chart_style": 10,
+                "title": { "name": chartTitle },
+                "plot_area": {
+                    "graph_type": "line",
+                    "marker": { "type": "auto" },
+                },
+                "ser": series,
+                "val_axis": { "crosses": "auto zero" },
+                "cat_axis": { "tick_label_skip": 0 }
+            }
+        });
+    };
+    // ===================================================================================
+
+
+    // ===================================================================================
+    // HOJA 1: Datos Históricos + Gráfica (Fila de Encabezado: 3)
+    // ===================================================================================
+    const selectedMetricsHist = selectedMetrics.map(m => metrics.find(met => met.value === m));
+    const historicosHeaders = ['Mes', ...selectedMetricsHist.map(m => m.label)];
+    const historicosData = [];
+    
+    historicosData.push(historicosHeaders);
+    
+    const histDataRows = [];
+    if (csvData[selectedYear]?.[selectedRegion]) {
+      meses.forEach((mes, idx) => {
+        const row = [mes];
+        selectedMetricsHist.forEach(metric => {
+          const val = csvData[selectedYear][selectedRegion][idx]?.[metric.value] || 0;
+          row.push(val);
+        });
+        histDataRows.push(row);
+      });
+    }
+    
+    historicosData.push(...histDataRows);
+
+    const ws1 = XLSX.utils.aoa_to_sheet(historicosData, { origin: "A3" });
+    applyTableFormatting(ws1, historicosHeaders, `REPORTE HISTÓRICO MENSUAL - ${selectedRegion} (${selectedYear})`, 2);
+
+    selectedMetricsHist.forEach((metric, index) => {
+        const cellAddress = XLSX.utils.encode_cell({ r: 2, c: index + 1 });
+        ws1[cellAddress].s.fill = { fgColor: { rgb: metric.color.substring(1).toUpperCase() } };
+    });
+
+    if (histDataRows.length > 0) {
+        const dataEndRow = 2 + histDataRows.length;
+        addLineChart(
+            ws1,  
+            `Evolución Histórica (${selectedYear})`,  
+            'Datos Históricos!$A$3',
+            2,
+            dataEndRow,
+            selectedMetricsHist.length,
+            selectedMetricsHist.map(m => m.label)
+        );
+    }
+
+    XLSX.utils.book_append_sheet(workbook, ws1, 'Datos Históricos');
+    
+    // ===================================================================================
+    // HOJA 2: Predicciones + Gráfica (Fila de Encabezado: 3)
+    // ===================================================================================
+    const prediccionesHeaders = ['Mes', ...selectedMetrics.flatMap(m => {
+      const label = metrics.find(met => met.value === m).label;
+      return [`${label} (Base)`, `${label} (Optimista)`, `${label} (Pesimista)`];
+    })];
+    const prediccionesData = [];
+    prediccionesData.push(prediccionesHeaders);
+    
+    const predDataRows = [];
+    meses.forEach((mes, idx) => {
+      const row = [mes];
+      selectedMetrics.forEach(metric => {
+        const pred = getPrediction(selectedRegion, metric.value);
+        row.push(pred[idx]);
+        row.push(Math.max(0, Math.round(pred[idx] * 0.85)));
+        row.push(Math.round(pred[idx] * 1.25));
+      });
+      predDataRows.push(row);
+    });
+    
+    prediccionesData.push(...predDataRows);
+    
+    const ws2 = XLSX.utils.aoa_to_sheet(prediccionesData, { origin: "A3" });
+    applyTableFormatting(ws2, prediccionesHeaders, `PROYECCIONES MENSUALES - ${selectedRegion} (${selectedPredictionYear})`, 2);
+
+    let colIndex = 1;
+    selectedMetrics.forEach(metric => {
+      const baseCell = XLSX.utils.encode_cell({ r: 2, c: colIndex });
+      ws2[baseCell].s.fill = { fgColor: { rgb: "D1DBE9" } };  
+      colIndex++;
+      
+      const optCell = XLSX.utils.encode_cell({ r: 2, c: colIndex });
+      ws2[optCell].s.fill = { fgColor: { rgb: "D1FAE5" } };
+      colIndex++;
+      
+      const pesCell = XLSX.utils.encode_cell({ r: 2, c: colIndex });
+      ws2[pesCell].s.fill = { fgColor: { rgb: "FEE2E2" } };
+      colIndex++;
+    });
+
+    if (predDataRows.length > 0) {
+      const dataEndRow = 2 + predDataRows.length;
+      addLineChart(
+          ws2,  
+          `Proyección por Escenario (${selectedPredictionYear})`,  
+          'Predicciones!$A$3',  
+          2,  
+          dataEndRow,  
+          prediccionesHeaders.length - 1,
+          prediccionesHeaders.slice(1)
+      );
+    }
+    
+    XLSX.utils.book_append_sheet(workbook, ws2, 'Predicciones');
+
+    // ===================================================================================
+    // HOJA 3: Datos por Región (Mapa) (Fila de Encabezado: 3)
+    // ===================================================================================
+    const mapaHeaders = ['Región', ...metrics.map(m => m.label)];
+    const mapaData = [];
+    mapaData.push(mapaHeaders);
+
+    const mapaDataRows = [];
+    regions.forEach(region => {
+      if (csvData[selectedMapYear]?.[region]?.length > 0) {
+        const row = [region];
+        metrics.forEach(metric => {
+          const total = csvData[selectedMapYear][region].reduce((sum, month) => 
+            sum + (month[metric.value] || 0), 0);
+          row.push(total);
+        });
+        mapaDataRows.push(row);
+      }
+    });
+    mapaData.push(...mapaDataRows);
+
+    const ws3 = XLSX.utils.aoa_to_sheet(mapaData, { origin: "A3" });
+    applyTableFormatting(ws3, mapaHeaders, `TOTAL ANUAL POR REGIÓN - TABLA DE PIVOTEO (${selectedMapYear})`, 2);
+
+    metrics.forEach((metric, index) => {
+        const cellAddress = XLSX.utils.encode_cell({ r: 2, c: index + 1 });
+        ws3[cellAddress].s.fill = { fgColor: { rgb: metric.color.substring(1).toUpperCase() } };
+    });
+
+    XLSX.utils.book_append_sheet(workbook, ws3, 'Datos por Región');
+
+    // ===================================================================================
+    // HOJA 4: Cambio Anual (Fila de Encabezado: 3)
+    // ===================================================================================
+    const selectedMetricForChange = selectedMetrics[0];
+    const metricLabel = metrics.find(m => m.value === selectedMetricForChange)?.label || 'Métrica';
+    const cambioHeaders = ['Transición', 'Valor Anterior', 'Valor Actual', 'Cambio (%)', 'Tipo'];
+    const cambioData = [];
+    cambioData.push(cambioHeaders);
+
+    const histChangeRows = [];
+    for (let i = 1; i < availableYears.length; i++) {
+      const prevYear = availableYears[i - 1];
+      const currYear = availableYears[i];
+      
+      const prevTotal = (csvData[prevYear]?.[selectedRegion] || [])
+        .reduce((sum, month) => sum + (month[selectedMetricForChange] || 0), 0);
+      const currTotal = (csvData[currYear]?.[selectedRegion] || [])
+        .reduce((sum, month) => sum + (month[selectedMetricForChange] || 0), 0);
+      
+      const changePercent = prevTotal > 0 ? ((currTotal - prevTotal) / prevTotal) : 0;
+      
+      histChangeRows.push([
+        `${prevYear} → ${currYear}`,
+        prevTotal,
+        currTotal,
+        changePercent,
+        'Histórico'
+      ]);
+    }
+    
+    if (availablePredictionYears.length > 0 && availableYears.length > 0) {
+      const lastYear = availableYears[availableYears.length - 1];
+      const predYear = availablePredictionYears[0];
+      
+      const lastTotal = (csvData[lastYear]?.[selectedRegion] || [])
+        .reduce((sum, month) => sum + (month[selectedMetricForChange] || 0), 0);
+      
+      const predictions = getPrediction(selectedRegion, selectedMetricForChange);
+      const predTotal = predictions.reduce((sum, val) => sum + val, 0);
+      
+      const changePercent = lastTotal > 0 ? ((predTotal - lastTotal) / lastTotal) : 0;
+      
+      histChangeRows.push([
+        `${lastYear} → ${predYear}`,
+        lastTotal,
+        predTotal,
+        changePercent,
+        'Predicción'
+      ]);
+    }
+
+    cambioData.push(...histChangeRows);
+    
+    const ws4 = XLSX.utils.aoa_to_sheet(cambioData, { origin: "A3" });
+    applyTableFormatting(ws4, cambioHeaders, `ANÁLISIS DE CAMBIO ANUAL DE ${metricLabel} EN ${selectedRegion}`, 2);
+
+    const range4 = XLSX.utils.decode_range(ws4['!ref']);
+    for (let R = 3; R <= range4.e.r; ++R) {
+        const changeCellAddress = XLSX.utils.encode_cell({ r: R, c: 3 });
+        const typeCellAddress = XLSX.utils.encode_cell({ r: R, c: 4 });
+        const cell = ws4[changeCellAddress];
+        const typeCell = ws4[typeCellAddress];
+
+        if (cell && typeof cell.v === 'number') {
+            const isPrediction = typeCell && typeCell.v === 'Predicción';
+            const color = cell.v >= 0 ? "FEE2E2" : "D1FAE5";
+            const fontColor = cell.v >= 0 ? "DC2626" : "059669";
+            
+            cell.s.numFmt = "0.00%";
+            cell.s.fill = { fgColor: { rgb: color } };
+            cell.s.font = {  
+                name: "Arial", sz: 12, bold: true,  
+                color: { rgb: fontColor },
+                italic: isPrediction
+            };
+            cell.s.alignment.horizontal = "center";
+        }
+    }
+    
+    XLSX.utils.book_append_sheet(workbook, ws4, 'Cambio Anual');
+
+    // Descargar archivo
+    XLSX.writeFile(workbook, `Reporte_COVID_${selectedRegion}_${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
+
+
+  // ====================================================================
+  // RENDERIZADO CONDICIONAL DEL DASHBOARD O EL COMPARADOR
+  // ====================================================================
+
+  if (showComparison) {
+    // Pasar los datos y las constantes necesarias al componente de comparación
+    return (
+      <CovidComparison 
+        csvData={csvData}
+        regions={regions}
+        metrics={metrics}
+        meses={meses}
+        availableYears={availableYears}
+      />
+    );
+  }
+
+  return (
+    <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%)', padding: '20px', fontFamily: 'Inter, sans-serif' }}>
+      <div style={{ maxWidth: '1400px', margin: '0 auto' }}>
+      {/* ==================== ENCABEZADO PRINCIPAL ==================== */}
+      <header style={{ textAlign: 'center', marginBottom: '30px', padding: '30px 20px', background: 'linear-gradient(135deg, #0ea5e9, #0c4a6e)', borderRadius: '20px', color: 'white', boxShadow: '0 8px 24px rgba(14, 165, 233, 0.3)' }}>
+        <h1 style={{ fontSize: '2.8rem', margin: 0, fontWeight: 800, textShadow: '2px 2px 4px rgba(0,0,0,0.2)' }}>
+          COVID-19 Oaxaca
+        </h1>
+        <p style={{ marginTop: '12px', fontSize: '1.2rem', fontWeight: 500, opacity: 0.95 }}>
+          Simulador Interactivo de Datos Epidemiológicos
+        </p>
+      </header>
+      
+
+      {/* ==================== SECCIÓN 1: CARGA DE DATOS ==================== */}
+      <section style={{ background: 'white', borderRadius: '16px', padding: '28px', marginBottom: '20px', boxShadow: '0 4px 20px rgba(0,0,0,0.08)', border: '2px solid #e0f2fe' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px', paddingBottom: '16px', borderBottom: '2px solid #f0f9ff' }}>
+          <div style={{ background: 'linear-gradient(135deg, #3b82f6, #2563eb)', padding: '12px', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Database size={24} color="white" />
+          </div>
+          <div style={{ flex: 1 }}>
+            <h2 style={{ fontSize: '1.5rem', margin: 0, fontWeight: 700, color: '#0c4a6e' }}>
+              📂 Gestión de Archivos CSV
+            </h2>
+            <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: '0.95rem' }}>
+              Sube o modifica los datos epidemiológicos por año (2020-2023)
+            </p>
+          </div>
+          
+          <div style={{ display: 'flex', gap: '12px' }}>
+            <button  
+              onClick={downloadTemplate}
+              style={{ 
+                color: 'white', 
+                padding: '12px 20px', 
+                borderRadius: '10px', 
+                border: 'none', 
+                cursor: 'pointer', 
+                fontWeight: 700, 
+                display: 'inline-flex', 
+                alignItems: 'center', 
+                gap: '8px', 
+                fontSize: '0.95rem', 
+                background: 'linear-gradient(135deg, #10b981, #059669)',
+                transition: 'all 0.3s ease',
+                boxShadow: '0 4px 12px rgba(16, 185, 129, 0.3)'
+              }}
+            >
+              <Upload size={16}/> Descargar Plantilla
+            </button>
+            
+            <button  
+              onClick={downloadExcelReport}
+              disabled={availableYears.length === 0}
+              style={{ 
+                color: 'white', 
+                padding: '12px 20px', 
+                borderRadius: '10px', 
+                border: 'none', 
+                cursor: availableYears.length === 0 ? 'not-allowed' : 'pointer', 
+                fontWeight: 700, 
+                display: 'inline-flex', 
+                alignItems: 'center', 
+                gap: '8px', 
+                fontSize: '0.95rem', 
+                background: availableYears.length === 0  
+                  ? 'linear-gradient(135deg, #9ca3af, #6b7280)'  
+                  : 'linear-gradient(135deg, #3b82f6, #2563eb)',
+                transition: 'all 0.3s ease',
+                boxShadow: availableYears.length === 0  
+                  ? '0 4px 12px rgba(156, 163, 175, 0.3)'  
+                  : '0 4px 12px rgba(59, 130, 246, 0.3)',
+                opacity: availableYears.length === 0 ? 0.6 : 1
+              }}
+            >
+              <BarChart3 size={16}/> 📥 Descargar Reporte
+            </button>
+
+            <button  
+            onClick={() => setShowComparison(!showComparison)}
+            disabled={availableYears.length < 3}
+            style={{ 
+              color: 'white', 
+              padding: '12px 20px', 
+              borderRadius: '10px', 
+              border: 'none', 
+              cursor: availableYears.length < 3 ? 'not-allowed' : 'pointer', 
+              fontWeight: 700, 
+              display: 'inline-flex', 
+              alignItems: 'center', 
+              gap: '8px', 
+              fontSize: '0.95rem', 
+              background: availableYears.length < 3  
+                ? 'linear-gradient(135deg, #9ca3af, #6b7280)'  
+                : 'linear-gradient(135deg, #8b5cf6, #7c3aed)',
+              transition: 'all 0.3s ease',
+              boxShadow: availableYears.length < 3  
+                ? '0 4px 12px rgba(156, 163, 175, 0.3)'  
+                : '0 4px 12px rgba(139, 92, 246, 0.3)',
+              opacity: availableYears.length < 3 ? 0.6 : 1
+            }}
+            >
+              🔄 {showComparison ? 'Ver Dashboard' : 'Comparar Predicciones'}
+            </button>
+          </div>
+        </div>
+        
+
+        <div style={{ background: '#f8fafc', borderRadius: '12px', padding: '20px', marginBottom: '16px' }}>
+          <p style={{ color: '#475569', fontSize: '0.95rem', marginBottom: '16px', fontWeight: 500 }}>
+            <strong>¿Qué hace esta sección?</strong> Los archivos CSV contienen los datos mensuales de COVID-19 por región. Descarga la plantilla con los encabezados correctos: Region, Mes, Casos Confirmados, Casos Sospechosos, Recuperaciones, Defunciones. Las predicciones se calculan automáticamente usando regresión lineal basada en los años disponibles.
+          </p>
+          
+          <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+            {allYears.map(year => (
+              <div key={year} style={{
+                minWidth: '140px',  
+                flex: '1',
+                display: 'flex',  
+                alignItems: 'center',  
+                gap: '12px',
+                padding: '16px',  
+                borderRadius: '12px',
+                border: csvData[year] ? '2px solid #10b981' : '2px solid #e2e8f0',
+                background: csvData[year]  
+                  ? 'linear-gradient(135deg, #f0fdf4, #dcfce7)'  
+                  : 'linear-gradient(135deg, #ffffff, #f8fafc)',
+                position: 'relative',
+                transition: 'all 0.3s ease',
+                opacity: csvData[year] ? 1 : 0.7
+              }}>
+                <div style={{  
+                  fontWeight: 700,  
+                  color: csvData[year] ? '#059669' : '#64748b',  
+                  fontSize: '1.3rem'  
+                }}>
+                  {year}
+                </div>
+                <div style={{  
+                  marginLeft: 'auto',  
+                  fontWeight: 700,  
+                  fontSize: '1.4rem',
+                  color: csvData[year] ? '#10b981' : '#cbd5e1'
+                }}>
+                  {csvData[year] ? '✓' : '○'}
+                </div>
+                <input  
+                  type="file"  
+                  id={`file-${year}`}  
+                  accept=".csv"  
+                  onChange={(e) => handleFileUpload(e, year)}  
+                  style={{ display: 'none' }}
+                />
+                <label  
+                  htmlFor={`file-${year}`}  
+                  style={{
+                    position: 'absolute',  
+                    right: '10px',  
+                    bottom: '10px',
+                    background: 'white',  
+                    borderRadius: '8px',
+                    padding: '6px 8px',  
+                    cursor: 'pointer',  
+                    fontSize: '16px',
+                    boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+                    transition: 'transform 0.2s ease'
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.1)'}
+                  onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
+                >
+                  📁
+                </label>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {loading && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px', background: '#eff6ff', borderRadius: '8px' }}>
+            <div style={{ width: '24px', height: '24px', border: '3px solid #3b82f6', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+            <span style={{ color: '#1e40af', fontWeight: 600 }}>Cargando datos...</span>
+          </div>
+        )}
+        
+        {validationError && (
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center', color: '#dc2626', fontWeight: 600, padding: '12px', background: '#fee2e2', borderRadius: '8px', border: '1px solid #fca5a5', marginTop: '12px' }}>
+            <AlertCircle size={18}/> {validationError}
+          </div>
+        )}
+        
+        {error && (
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center', color: '#dc2626', fontWeight: 600, padding: '12px', background: '#fee2e2', borderRadius: '8px', border: '1px solid #fca5a5', marginTop: '12px' }}>
+            <AlertCircle size={18}/> {error}
+          </div>
+        )}
+      </section>
+
+      {/* ==================== SECCIÓN 2: CONTROLES DE VISUALIZACIÓN ==================== */}
+      <section style={{ background: 'white', borderRadius: '16px', padding: '28px', marginBottom: '20px', boxShadow: '0 4px 20px rgba(0,0,0,0.08)', border: '2px solid #f0fdf4' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px', paddingBottom: '16px', borderBottom: '2px solid #f0fdf4' }}>
+          <div style={{ background: 'linear-gradient(135deg, #10b981, #059669)', padding: '12px', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Settings size={24} color="white" />
+          </div>
+          <div>
+            <h2 style={{ fontSize: '1.5rem', margin: 0, fontWeight: 700, color: '#0c4a6e' }}>
+              ⚙️ Configuración de Visualización
+            </h2>
+            <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: '0.95rem' }}>
+              Selecciona el año, región y métricas que deseas analizar
+            </p>
+          </div>
+        </div>
+
+        <div style={{ background: '#f8fafc', borderRadius: '12px', padding: '20px' }}>
+          <p style={{ color: '#475569', fontSize: '0.95rem', marginBottom: '16px', fontWeight: 500 }}>
+            <strong>¿Qué hace esta sección?</strong> Controla la información mostrada en las gráficas. La animación se ejecuta automáticamente al cambiar de año o región.
+          </p>
+
+          <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: '24px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', minWidth: '160px' }}>
+              <label style={{ color: '#374151', fontSize: '1rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                📅 Año
+              </label>
+              <select  
+                value={selectedYear}  
+                onChange={(e) => setSelectedYear(e.target.value)}  
+                style={{  
+                  padding: '12px 14px',  
+                  borderRadius: '10px',  
+                  border: '2px solid #e5e7eb',  
+                  background: 'white',  
+                  fontSize: '1rem',  
+                  fontWeight: 500,  
+                  cursor: 'pointer',
+                  transition: 'border-color 0.2s ease'
+                }}
+                disabled={availableYears.length === 0}
+              >
+                {availableYears.length === 0 ? (
+                  <option>No hay años disponibles</option>
+                ) : (
+                  availableYears.map(y => <option key={y} value={y}>{y}</option>)
+                )}
+              </select>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', minWidth: '180px' }}>
+              <label style={{ color: '#374151', fontSize: '1rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                📍 Región
+              </label>
+              <select  
+                value={selectedRegion}  
+                onChange={(e) => setSelectedRegion(e.target.value)}  
+                style={{  
+                  padding: '12px 14px',  
+                  borderRadius: '10px',  
+                  border: '2px solid #e5e7eb',  
+                  background: 'white',  
+                  fontSize: '1rem',  
+                  fontWeight: 500,  
+                  cursor: 'pointer',
+                  transition: 'border-color 0.2s ease'
+                }}
+              >
+                {regions.map(r => <option key={r} value={r}>{r}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <div style={{ paddingTop: '20px', borderTop: '2px solid #e5e7eb' }}>
+            <label style={{ color: '#374151', fontSize: '1rem', fontWeight:600, marginBottom: '12px', display: 'block' }}>
+              📊 Métricas a Visualizar
+            </label>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
+              {metrics.map(metric => (
+                <label  
+                  key={metric.value}  
+                  style={{  
+                    display: 'flex',  
+                    alignItems: 'center',  
+                    gap: '10px',  
+                    padding: '12px 16px',  
+                    background: selectedMetrics.includes(metric.value) ? '#f0f9ff' : '#ffffff',  
+                    borderRadius: '10px',  
+                    cursor: 'pointer',  
+                    fontWeight: 600,  
+                    fontSize: '0.95rem',  
+                    border: selectedMetrics.includes(metric.value) ? '2px solid #3b82f6' : '2px solid #e2e8f0',
+                    transition: 'all 0.2s ease'
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedMetrics.includes(metric.value)}
+                    onChange={() => toggleMetric(metric.value)}
+                    style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                  />
+                  <span style={{  
+                    width: '14px',  
+                    height: '14px',  
+                    borderRadius: '50%',  
+                    display: 'inline-block',  
+                    background: metric.color,  
+                    boxShadow: '0 2px 6px rgba(0,0,0,0.2)'  
+                  }} />
+                  {metric.label}
+                </label>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ==================== SECCIÓN 3: GRÁFICAS (HISTÓRICOS Y PREDICCIONES) ==================== */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '20px' }}>
+        
+        {/* Gráfica de Datos Históricos */}
+        <section style={{ background: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 4px 20px rgba(0,0,0,0.08)', border: '2px solid #fef3c7' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px', paddingBottom: '16px', borderBottom: '2px solid #fef3c7' }}>
+            <div style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)', padding: '12px', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <BarChart3 size={24} color="white" />
+            </div>
+            <div>
+              <h3 style={{ fontSize: '1.3rem', margin: 0, fontWeight: 700, color: '#0c4a6e' }}>
+                📈 Datos Históricos
+              </h3>
+              <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: '0.85rem' }}>
+                {selectedRegion} ({selectedYear})
+              </p>
+            </div>
+          </div>
+
+          <div style={{ background: '#fffbeb', borderRadius: '12px', padding: '14px', marginBottom: '16px' }}>
+            <p style={{ color: '#78350f', fontSize: '0.85rem', fontWeight: 500, margin: 0 }}>
+              <strong>Datos del CSV:</strong> Evolución mensual real de las métricas seleccionadas.
+            </p>
+          </div>
+
+          {hasData ? (
+            <ResponsiveContainer width="100%" height={400}>
+              <LineChart data={displayedData} margin={{ top: 5, right: 20, left: 10, bottom: 40 }}>
+                <CartesianGrid strokeDasharray="4 4" stroke="#e5e7eb" />
+                <XAxis  
+                  dataKey="mes"  
+                  label={{ value: 'Meses', position: 'insideBottom', offset: -10 }}
+                  tick={{ fontSize: 11 }}
+                  height={60}
+                />
+                <YAxis  
+                  label={{ value: 'Casos', angle: -90, position: 'insideLeft' }}
+                  tick={{ fontSize: 11 }}
+                />
+                <Tooltip />
+                <Legend  
+                  wrapperStyle={{ paddingTop: '15px' }}
+                  iconType="line"
+                />
+                
+                {selectedMetrics.map(metric => {
+                  const metricObj = metrics.find(m => m.value === metric);
+                  return (
+                    <Line  
+                      key={metric}
+                      type="monotone"  
+                      dataKey={`${metric}_hist`}  
+                      name={metricObj.label}  
+                      stroke={metricObj.color}  
+                      strokeWidth={3}  
+                      dot={{ r: 5, fill: metricObj.color, strokeWidth: 2, stroke: '#fff' }}
+                      activeDot={{ r: 7 }}
+                      label={isAnimating ? {  
+                        position: 'top',  
+                        fill: metricObj.color,  
+                        fontSize: 11,  
+                        fontWeight: 'bold',
+                        formatter: (value) => value !== null ? value : ''
+                      } : false}
+                    />
+                  );
+                })}
+              </LineChart>
+            </ResponsiveContainer>
+          ) : (
+            <div style={{ textAlign: 'center', padding: '60px 20px', color: '#94a3b8' }}>
+              <Upload size={48} color="#94a3b8" />
+              <p style={{ marginTop: '10px', fontSize: '0.9rem' }}>No hay datos disponibles</p>
+            </div>
+          )}
+        </section>
+
+        {/* Gráfica de Predicciones */}
+        <section style={{ background: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 4px 20px rgba(0,0,0,0.08)', border: '2px solid #e9d5ff' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px', paddingBottom: '16px', borderBottom: '2px solid #e9d5ff' }}>
+            <div style={{ background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)', padding: '12px', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <TrendingUp size={24} color="white" />
+            </div>
+            <div style={{ flex: 1 }}>
+              <h3 style={{ fontSize: '1.3rem', margin: 0, fontWeight: 700, color: '#0c4a6e' }}>
+                🔮 Predicciones
+              </h3>
+              <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: '0.85rem' }}>
+                {selectedRegion} (Regresión Lineal)
+              </p>
+            </div>
+          </div>
+
+          <div style={{ background: '#faf5ff', borderRadius: '12px', padding: '14px', marginBottom: '16px' }}>
+            <p style={{ color: '#581c87', fontSize: '0.85rem', fontWeight: 500, marginBottom: '10px' }}>
+              <strong>Proyecciones:</strong> Calculadas con $y = mx + b$ usando {availableYears.length} años de datos disponibles.
+            </p>
+            
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '8px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', minWidth: '140px', flex: 1 }}>
+                <label style={{ color: '#374151', fontSize: '0.85rem', fontWeight: 600 }}>
+                  Año a Predecir
+                </label>
+                <select  
+                  value={selectedPredictionYear}  
+                  onChange={(e) => setSelectedPredictionYear(e.target.value)}  
+                  style={{  
+                    padding: '8px 12px',  
+                    borderRadius: '8px',  
+                    border: '2px solid #e5e7eb',  
+                    background: 'white',  
+                    fontSize: '0.85rem',  
+                    fontWeight: 500,  
+                    cursor: 'pointer',
+                    width: '100%'
+                  }}
+                  disabled={availablePredictionYears.length === 0}
+                >
+                  {availablePredictionYears.length === 0 ? (
+                    <option>No disponible</option>
+                  ) : (
+                    availablePredictionYears.map(year => (
+                      <option key={year} value={year}>{year}</option>
+                    ))
+                  )}
+                </select>
+              </div>
+            </div>
+
+            <select  
+              value={predictionMode}  
+              onChange={(e) => setPredictionMode(e.target.value)}  
+              style={{  
+                padding: '8px 12px',  
+                borderRadius: '8px',  
+                border: '2px solid #e5e7eb',  
+                background: 'white',  
+                fontSize: '0.85rem',  
+                fontWeight: 500,  
+                cursor: 'pointer',
+                width: '100%'
+              }}
+            >
+              <option value="base">Base (Estándar)</option>
+              <option value="optimista">Optimista (-15%)</option>
+              <option value="pesimista">Pesimista (+25%)</option>
+              <option value="todos">Todos los escenarios</option>
+            </select>
+          </div>
+
+          <ResponsiveContainer width="100%" height={400}>
+            {availableYears.length < 2 ? (
+              <div style={{ textAlign: 'center', padding: '60px 20px', color: '#94a3b8' }}>
+                <Calendar size={48} color="#94a3b8" />
+                <p style={{ marginTop: '10px', fontSize: '0.9rem' }}>Necesitas cargar al menos 2 años para la regresión lineal.</p>
+              </div>
+            ) : (
+              <LineChart data={chartData} margin={{ top: 5, right: 20, left: 10, bottom: 40 }}>
+                <CartesianGrid strokeDasharray="4 4" stroke="#e5e7eb" />
+                <XAxis  
+                  dataKey="mes"  
+                  label={{ value: 'Meses', position: 'insideBottom', offset: -10 }}
+                  tick={{ fontSize: 11 }}
+                  height={60}
+                />
+                <YAxis  
+                  label={{ value: 'Casos', angle: -90, position: 'insideLeft' }}
+                  tick={{ fontSize: 11 }}
+                />
+                <Tooltip />
+                <Legend  
+                  wrapperStyle={{ paddingTop: '15px' }}
+                  iconType="line"
+                />
+                
+                {selectedMetrics.map(metric => {
+                  const metricObj = metrics.find(m => m.value === metric);
+                  return (
+                    <React.Fragment key={metric}>
+                      {(predictionMode === 'base' || predictionMode === 'todos') && (
+                        <Line  
+                          type="monotone"  
+                          dataKey={`${metric}_pred_base`}  
+                          name={`${metricObj.label} ${selectedPredictionYear} (Base)`}  
+                          stroke="#07074bff"  
+                          strokeDasharray="6 6"  
+                          strokeWidth={2}  
+                          dot={false}
+                          opacity={0.7}
+                        />
+                      )}
+                      {(predictionMode === 'optimista' || predictionMode === 'todos') && (
+                        <Line  
+                          type="monotone"  
+                          dataKey={`${metric}_pred_optimista`}  
+                          name={`${metricObj.label} ${selectedPredictionYear} (Opt.)`}  
+                          stroke="#1f6b1dff"  
+                          strokeDasharray="4 6"  
+                          strokeWidth={2}  
+                          dot={false}
+                          opacity={0.6}
+                        />
+                      )}
+                      {(predictionMode === 'pesimista' || predictionMode === 'todos') && (
+                        <Line  
+                          type="monotone"  
+                          dataKey={`${metric}_pred_pesimista`}  
+                          name={`${metricObj.label} ${selectedPredictionYear} (Pes.)`}  
+                          stroke="#913434ff"  
+                          strokeDasharray="2 6"  
+                          strokeWidth={2}  
+                          dot={false}
+                          opacity={0.6}
+                        />
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </LineChart>
+            )}
+          </ResponsiveContainer>
+        </section>
+      </div>
+
+      {/* ==================== SECCIÓN 4: MAPA INTERACTIVO CON INFORMACIÓN ==================== */}
+      <section style={{  
+        background: 'linear-gradient(135deg, #eff6ff, #dbeafe)',  
+        border: '2px solid #93c5fd',  
+        borderRadius: '16px',  
+        padding: '28px',  
+        marginBottom: '20px',
+        boxShadow: '0 4px 20px rgba(59, 130, 246, 0.15)'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px', marginBottom: '16px' }}>
+          <div style={{ background: 'linear-gradient(135deg, #3b82f6, #2563eb)', padding: '12px', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <MapPin size={24} color="white" />
+          </div>
+          <h3 style={{ fontSize: '1.5rem', margin: 0, fontWeight: 700, color: '#0c4a6e' }}>
+            🗺️ Mapa de Regiones de Oaxaca
+          </h3>
+        </div>
+        
+        <div style={{ background: 'white', borderRadius: '12px', padding: '16px', marginBottom: '16px' }}>
+          <p style={{ color: '#475569', fontSize: '0.95rem', fontWeight: 500, marginBottom: '12px' }}>
+            <strong>¿Qué hace esta sección?</strong> Visualiza las 8 regiones geográficas de Oaxaca. Haz clic en cualquier región con datos disponibles (puntos azules) para seleccionarla. La región seleccionada se marca en verde.
+          </p>
+          
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <label style={{ color: '#374151', fontSize: '0.95rem', fontWeight: 600 }}>
+              📅 Año del Mapa:
+            </label>
+            <select  
+              value={selectedMapYear}  
+              onChange={(e) => setSelectedMapYear(e.target.value)}  
+              style={{  
+                padding: '10px 14px',  
+                borderRadius: '8px',  
+                border: '2px solid #e5e7eb',  
+                background: 'white',  
+                fontSize: '0.95rem',  
+                fontWeight: 500,  
+                cursor: 'pointer',
+                transition: 'border-color 0.2s ease'
+              }}
+              disabled={availableYears.length === 0}
+            >
+              {availableYears.length === 0 ? (
+                <option>No hay años disponibles</option>
+              ) : (
+                availableYears.map(y => <option key={y} value={y}>{y}</option>)
+              )}
+            </select>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: '20px', alignItems: 'flex-start' }}>
+          {/* Información lateral izquierda */}
+          <div style={{ flex: '1', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div style={{ background: 'white', borderRadius: '12px', padding: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+              <h4 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#0c4a6e', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                📍 Región Seleccionada
+              </h4>
+              <p style={{ fontSize: '1.3rem', fontWeight: 800, color: '#0ea5e9', margin: 0 }}>
+                {selectedRegion}
+              </p>
+              <p style={{ fontSize: '0.9rem', color: '#64748b', marginTop: '6px' }}>
+                Año: <strong>{selectedMapYear}</strong>
+              </p>
+            </div>
+
+            {hasMapData && (
+              <div style={{ background: 'white', borderRadius: '12px', padding: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+                <h4 style={{ fontSize: '1rem', fontWeight: 700, color: '#0c4a6e', marginBottom: '12px' }}>
+                  📊 Total Anual {selectedMapYear}
+                </h4>
+                {metrics.map(metric => {
+                  const total = (csvData[selectedMapYear]?.[selectedRegion] || [])
+                    .reduce((sum, month) => sum + (month[metric.value] || 0), 0);
+                  return (
+                    <div key={metric.value} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', padding: '8px', background: '#f8fafc', borderRadius: '6px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: metric.color }} />
+                        <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#475569' }}>
+                          {metric.label.split(' ')[1] || metric.label}
+                        </span>
+                      </div>
+                      <span style={{ fontSize: '1rem', fontWeight: 700, color: metric.color }}>
+                        {total.toLocaleString()}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Mapa central */}
+          <svg width="520" height="320" style={{  
+            borderRadius: '12px',  
+            background: 'white',  
+            padding: '10px',  
+            boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+            flex: 'none'
+          }}>
+            <defs>
+              {/* Nota: Asume que /img/mapa.png existe. Si no, debe ser un SVG real. */}
+              <pattern id="mapBackground" x="0" y="0" width="520" height="320" patternUnits="userSpaceOnUse">
+                <image href="/img/mapa.png" x="0" y="0" width="520" height="320" preserveAspectRatio="xMidYMid slice" />
+              </pattern>
+            </defs>
+            
+            <rect x="0" y="0" width="520" height="320" fill="url(#mapBackground)" opacity="0.4" />
+            
+            <path  
+              d="M 80 100 L 100 70 L 140 50 L 180 45 L 220 50 L 260 60 L 300 80 L 340 100 L 370 130 L 390 160 L 400 190 L 390 220 L 360 240 L 320 250 L 280 255 L 240 250 L 200 245 L 160 235 L 120 220 L 90 200 L 70 170 L 65 140 Z"
+              fill="#e0f2fe"
+              stroke="#0369a1"
+              strokeWidth="2.5"
+              opacity="0.3"
+            />
+            
+            <path  
+              d="M 150 100 Q 180 120 200 100 T 250 110"
+              stroke="#0ea5e9"
+              strokeWidth="1.5"
+              fill="none"
+              opacity="0.4"
+            />
+            
+            <text x="260" y="160" fontSize="11" fill="#0369a1" opacity="0.6" fontWeight="600" textAnchor="middle">
+              OAXACA
+            </text>
+            
+            {regions.map(region => {
+            const coords = regionCoordinates[region];
+            const isSelected = region === selectedRegion;
+            const hasRegionData = csvData[selectedMapYear]?.[region]?.length > 0;
+            return (
+              <g key={region} style={{ cursor: hasRegionData ? 'pointer' : 'default' }}>
+              <circle
+              cx={coords.x}
+              cy={coords.y}
+              r={isSelected ? 16 : 12}
+              fill={isSelected ? '#10b981' : hasRegionData ? '#3b82f6' : '#9ca3af'}
+              stroke="#fff"
+              strokeWidth="3"
+              style={{ cursor: hasRegionData ? 'pointer' : 'default', transition: 'all 0.3s ease' }}
+              onClick={() => hasRegionData && setSelectedRegion(region)}
+              />
+              <text  
+                x={coords.x}  
+                y={coords.y + 30}
+                textAnchor="middle"
+                fontSize="11"
+                fontWeight="600"
+                fill="#1e293b"
+              >
+                {region.split(' ')[0]}
+              </text>
+            </g>
+            );
+          })}
+          </svg>
+
+          {/* Información lateral derecha */}
+          <div style={{ flex: '1', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div style={{ background: 'white', borderRadius: '12px', padding: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+              <h4 style={{ fontSize: '1rem', fontWeight: 700, color: '#0c4a6e', marginBottom: '12px' }}>
+                📌 Regiones Disponibles
+              </h4>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {regions.map(region => {
+                const hasRegionData = csvData[selectedMapYear]?.[region]?.length > 0;
+                return (
+                  <div  
+                    key={region}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '6px 10px',
+                      background: region === selectedRegion ? '#dcfce7' : '#f8fafc',
+                      borderRadius: '6px',
+                      cursor: hasRegionData ? 'pointer' : 'default',
+                      border: region === selectedRegion ? '2px solid #10b981' : '1px solid #e2e8f0',
+                      opacity: hasRegionData ? 1 : 0.5
+                    }}
+                    onClick={() => hasRegionData && setSelectedRegion(region)}
+                  >
+                    <span style={{  
+                      width: '8px',  
+                      height: '8px',  
+                      borderRadius: '50%',  
+                      display: 'inline-block',  
+                      background: region === selectedRegion ? '#10b981' : (hasRegionData ? '#3b82f6' : '#9ca3af')
+                    }} />
+                    <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#475569' }}>
+                      {region}
+                    </span>
+                  </div>
+                );
+              })}
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ==================== SECCIÓN 5: TASA DE CAMBIO ANUAL ==================== */}
+      <section style={{  
+        background: 'linear-gradient(135deg, #ffffff, #f8fafc)',  
+        borderRadius: '20px',  
+        padding: '32px',  
+        marginBottom: '20px',  
+        boxShadow: '0 10px 40px rgba(0,0,0,0.12)',  
+        border: '3px solid transparent',
+        backgroundImage: 'linear-gradient(white, white), linear-gradient(135deg, #8b5cf6, #ec4899)',
+        backgroundOrigin: 'border-box',
+        backgroundClip: 'padding-box, border-box'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '24px', paddingBottom: '20px', borderBottom: '3px solid', borderImage: 'linear-gradient(90deg, #8b5cf6, #ec4899) 1' }}>
+          <div style={{  
+            background: 'linear-gradient(135deg, #8b5cf6, #ec4899)',  
+            padding: '16px',  
+            borderRadius: '16px',  
+            display: 'flex',  
+            alignItems: 'center',  
+            justifyContent: 'center',
+            boxShadow: '0 8px 20px rgba(139, 92, 246, 0.4)'
+          }}>
+            <BarChart3 size={28} color="white" />
+          </div>
+          <div style={{ flex: 1 }}>
+            <h2 style={{ fontSize: '2rem', margin: 0, fontWeight: 800, color: '#0c4a6e', letterSpacing: '-0.5px' }}>
+              📈 Análisis de Tasa de Cambio Anual
+            </h2>
+            <p style={{ margin: '6px 0 0', color: '#64748b', fontSize: '1.05rem', fontWeight: 500 }}>
+              {selectedRegion} - Evolución porcentual año tras año
+            </p>
+          </div>
+        </div>
+
+        <div style={{  
+          background: 'linear-gradient(135deg, #faf5ff, #fef3f2)',  
+          borderRadius: '16px',  
+          padding: '20px',  
+          marginBottom: '24px',
+          border: '2px solid #e9d5ff'
+        }}>
+          <div style={{ display: 'flex', gap: '20px', alignItems: 'flex-start', marginBottom: '16px' }}>
+            <div style={{ flex: 1 }}>
+              <p style={{ color: '#581c87', fontSize: '0.95rem', fontWeight: 600, marginBottom: '8px' }}>
+                ℹ️ <strong>¿Qué muestra esta gráfica?</strong>
+              </p>
+              <p style={{ color: '#6b21a8', fontSize: '0.9rem', margin: 0, lineHeight: '1.6' }}>
+                Visualiza el cambio porcentual de la métrica seleccionada entre años consecutivos. Las barras **verdes** indican **reducción** (valores negativos), mientras que las barras **rojas** muestran **aumentos** (valores positivos).
+              </p>
+            </div>
+          </div>
+          
+          <div style={{  
+            display: 'grid',  
+            gridTemplateColumns: '1fr 1fr',  
+            gap: '16px',
+            marginTop: '16px'
+          }}>
+            <div style={{  
+              background: 'white',  
+              padding: '16px',  
+              borderRadius: '12px',
+              border: '2px solid #e9d5ff'
+            }}>
+              <label style={{  
+                color: '#374151',  
+                fontSize: '0.9rem',  
+                fontWeight: 700,  
+                marginBottom: '10px',  
+                display: 'block',
+                textTransform: 'uppercase',
+                letterSpacing: '0.5px'
+              }}>
+                📊 Métrica a Analizar
+              </label>
+              <select  
+                value={selectedMetrics[0]}  
+                onChange={(e) => setSelectedMetrics([e.target.value])}  
+                style={{  
+                  padding: '12px 16px',  
+                  borderRadius: '10px',  
+                  border: '2px solid #e5e7eb',  
+                  background: 'white',  
+                  fontSize: '1rem',  
+                  fontWeight: 600,  
+                  cursor: 'pointer',
+                  width: '100%',
+                  transition: 'all 0.3s ease',
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.05)'
+                }}
+              >
+                {metrics.map(m => (
+                  <option key={m.value} value={m.value}>{m.label}</option>
+                ))}
+              </select>
+            </div>
+
+            <div style={{  
+              background: 'white',  
+              padding: '16px',  
+              borderRadius: '12px',
+              border: '2px solid #dbeafe',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'center'
+            }}>
+              <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                    <div style={{ width: '16px', height: '16px', background: '#10b981', borderRadius: '4px' }} />
+                    <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#059669' }}>REDUCCIÓN</span>
+                  </div>
+                  <p style={{ fontSize: '0.75rem', color: '#64748b', margin: 0 }}>Valores negativos</p>
+                </div>
+                <div style={{ width: '2px', height: '40px', background: '#e2e8f0' }} />
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                    <div style={{ width: '16px', height: '16px', background: '#ef4444', borderRadius: '4px' }} />
+                    <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#dc2626' }}>AUMENTO</span>
+                  </div>
+                  <p style={{ fontSize: '0.75rem', color: '#64748b', margin: 0 }}>Valores positivos</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {(() => {
+          const selectedMetric = selectedMetrics[0];
+          const changeData = [];
+          let maxAbsChange = 0;
+          
+          for (let i = 1; i < availableYears.length; i++) {
+            const prevYear = availableYears[i - 1];
+            const currYear = availableYears[i];
+            
+            const prevTotal = (csvData[prevYear]?.[selectedRegion] || [])
+              .reduce((sum, month) => sum + (month[selectedMetric] || 0), 0);
+            const currTotal = (csvData[currYear]?.[selectedRegion] || [])
+              .reduce((sum, month) => sum + (month[selectedMetric] || 0), 0);
+            
+            const changePercent = prevTotal > 0  
+              ? ((currTotal - prevTotal) / prevTotal) * 100  
+              : 0;
+            
+            maxAbsChange = Math.max(maxAbsChange, Math.abs(changePercent));
+            
+            changeData.push({
+              transicion: `${prevYear} → ${currYear}`,
+              cambio: changePercent,
+              prevTotal,
+              currTotal,
+              esPrediction: false
+            });
+          }
+
+          // Agregar predicción
+          if (availablePredictionYears.length > 0 && availableYears.length > 0 && availableYears.length >= 2) {
+            const lastYear = availableYears[availableYears.length - 1];
+            const predYear = availablePredictionYears[0];
+            
+            const lastTotal = (csvData[lastYear]?.[selectedRegion] || [])
+              .reduce((sum, month) => sum + (month[selectedMetric] || 0), 0);
+            
+            const predictions = getPrediction(selectedRegion, selectedMetric);
+            const predTotal = predictions.reduce((sum, val) => sum + val, 0);
+            
+            const changePercent = lastTotal > 0  
+              ? ((predTotal - lastTotal) / lastTotal) * 100  
+              : 0;
+            
+            maxAbsChange = Math.max(maxAbsChange, Math.abs(changePercent));
+            
+            changeData.push({
+              transicion: `${lastYear} → ${predYear}`,
+              cambio: changePercent,
+              prevTotal: lastTotal,
+              currTotal: predTotal,
+              esPrediction: true
+            });
+          }
+
+          if (changeData.length < 1) {
+            return (
+              <div style={{  
+                textAlign: 'center',  
+                padding: '80px 20px',  
+                background: 'linear-gradient(135deg, #f8fafc, #f1f5f9)',
+                borderRadius: '16px',
+                border: '2px dashed #cbd5e1'
+              }}>
+                <BarChart3 size={64} color="#94a3b8" />
+                <p style={{ marginTop: '16px', fontSize: '1.1rem', fontWeight: 600, color: '#64748b' }}>
+                  No hay suficientes años para calcular cambios
+                </p>
+                <p style={{ marginTop: '8px', fontSize: '0.9rem', color: '#94a3b8' }}>
+                  Necesitas al menos 2 años de datos cargados para ver la primera barra de cambio
+                </p>
+              </div>
+            );
+          }
+
+          return (
+            <>
+              <div style={{  
+                background: 'white',  
+                borderRadius: '16px',  
+                padding: '24px',
+                boxShadow: '0 4px 16px rgba(0,0,0,0.08)',
+                marginBottom: '20px'
+              }}>
+                <ResponsiveContainer width="100%" height={450}>
+                  <BarChart data={changeData} margin={{ top: 20, right: 30, left: 20, bottom: 60 }}>
+                    <defs>
+                      <linearGradient id="colorPositive" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#ef4444" stopOpacity={0.9}/>
+                        <stop offset="100%" stopColor="#dc2626" stopOpacity={0.7}/>
+                      </linearGradient>
+                      <linearGradient id="colorNegative" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#10b981" stopOpacity={0.9}/>
+                        <stop offset="100%" stopColor="#059669" stopOpacity={0.7}/>
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="4 4" stroke="#e5e7eb" vertical={false} />
+                    <XAxis  
+                      dataKey="transicion"  
+                      label={{  
+                        value: 'Período de Transición',  
+                        position: 'insideBottom',  
+                        offset: -15,
+                        style: { fontSize: '14px', fontWeight: 700, fill: '#475569' }
+                      }}
+                      tick={{ fontSize: 13, fontWeight: 600, fill: '#64748b' }}
+                      height={80}
+                    />
+                    <YAxis  
+                      label={{  
+                        value: 'Cambio Porcentual (%)',  
+                        angle: -90,  
+                        position: 'insideLeft',
+                        style: { fontSize: '14px', fontWeight: 700, fill: '#475569' }
+                      }}
+                      domain={[-Math.ceil(maxAbsChange * 1.2), Math.ceil(maxAbsChange * 1.2)]}
+                    />
+                    <Tooltip  
+                      content={({ active, payload }) => {
+                        if (active && payload && payload.length) {
+                          const data = payload[0].payload;
+                          return (
+                            <div style={{  
+                              background: 'white',  
+                              padding: '16px 20px',  
+                              border: data.cambio >= 0 ? '3px solid #ef4444' : '3px solid #10b981',  
+                              borderRadius: '12px',
+                              boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
+                              minWidth: '240px'
+                            }}>
+                              <p style={{  
+                                fontWeight: 800,  
+                                margin: '0 0 12px 0',  
+                                color: '#0c4a6e',
+                                fontSize: '1.1rem',
+                                borderBottom: '2px solid #e2e8f0',
+                                paddingBottom: '8px'
+                              }}>
+                                {data.transicion} {data.esPrediction && '⚡'}
+                              </p>
+                              <div style={{ marginBottom: '8px' }}>
+                                <span style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 600 }}>
+                                  Año anterior:
+                                </span>
+                                <span style={{ fontSize: '1.1rem', fontWeight: 800, color: '#475569', marginLeft: '8px' }}>
+                                  {data.prevTotal.toLocaleString()}
+                                </span>
+                              </div>
+                              <div style={{ marginBottom: '12px' }}>
+                                <span style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 600 }}>
+                                  Año actual:
+                                </span>
+                                <span style={{ fontSize: '1.1rem', fontWeight: 800, color: '#475569', marginLeft: '8px' }}>
+                                  {data.currTotal.toLocaleString()}
+                                </span>
+                              </div>
+                              <div style={{  
+                                background: data.cambio >= 0 ? '#fee2e2' : '#d1fae5',  
+                                padding: '10px',  
+                                borderRadius: '8px',
+                                textAlign: 'center'
+                              }}>
+                                <span style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                                  CAMBIO
+                                </span>
+                                <span style={{  
+                                  fontSize: '1.8rem',  
+                                  fontWeight: 900,  
+                                  color: data.cambio >= 0 ? '#dc2626' : '#059669'
+                                }}>
+                                  {data.cambio >= 0 ? '+' : ''}{data.cambio.toFixed(2)}%
+                                </span>
+                              </div>
+                              {data.esPrediction && (
+                                <p style={{  
+                                  fontSize: '0.75rem',  
+                                  color: '#8b5cf6',  
+                                  margin: '8px 0 0 0',  
+                                  fontWeight: 700,
+                                  textAlign: 'center'
+                                }}>
+                                  ⚡ Predicción basada en regresión lineal
+                                </p>
+                              )}
+                            </div>
+                          );
+                        }
+                        return null;
+                      }}
+                    />
+                    <Bar  
+                      dataKey="cambio"  
+                      radius={[8, 8, 0, 0]}
+                      name="Cambio %"
+                    >
+                      {changeData.map((entry, index) => (
+                        <Cell  
+                          key={`cell-${index}`}  
+                          fill={entry.cambio >= 0 ? 'url(#colorPositive)' : 'url(#colorNegative)'}
+                        />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+
+              <div style={{  
+                display: 'grid',  
+                gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',  
+                gap: '16px',
+                marginTop: '20px'
+              }}>
+                {changeData.map((item, idx) => (
+                  <div  
+                    key={idx}
+                    style={{  
+                      background: item.cambio >= 0  
+                        ? 'linear-gradient(135deg, #fee2e2, #fecaca)'  
+                        : 'linear-gradient(135deg, #d1fae5, #a7f3d0)',
+                      borderRadius: '12px',
+                      padding: '16px',
+                      border: item.cambio >= 0 ? '2px solid #fca5a5' : '2px solid #6ee7b7',
+                      position: 'relative',
+                      overflow: 'hidden',
+                      transition: 'transform 0.3s ease, box-shadow 0.3s ease',
+                      cursor: 'default'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.transform = 'translateY(-4px)';
+                      e.currentTarget.style.boxShadow = '0 12px 28px rgba(0,0,0,0.15)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.transform = 'translateY(0)';
+                      e.currentTarget.style.boxShadow = 'none';
+                    }}
+                  >
+                    {item.esPrediction && (
+                      <div style={{
+                        position: 'absolute',
+                        top: '8px',
+                        right: '8px',
+                        background: '#8b5cf6',
+                        color: 'white',
+                        padding: '4px 10px',
+                        borderRadius: '6px',
+                        fontSize: '0.7rem',
+                        fontWeight: 800,
+                        letterSpacing: '0.5px'
+                      }}>
+                        ⚡ PREDICCIÓN
+                      </div>
+                    )}
+                    
+                    <div style={{ marginBottom: '12px' }}>
+                      <p style={{  
+                        fontSize: '1.2rem',  
+                        fontWeight: 800,  
+                        color: '#0c4a6e',  
+                        margin: 0,
+                        letterSpacing: '-0.5px'
+                      }}>
+                        {item.transicion}
+                      </p>
+                    </div>
+
+                    <div style={{  
+                      display: 'flex',  
+                      justifyContent: 'space-between',  
+                      alignItems: 'center',
+                      marginBottom: '8px',
+                      paddingBottom: '8px',
+                      borderBottom: '2px solid rgba(0,0,0,0.1)'
+                    }}>
+                      <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#475569' }}>
+                        Valor anterior:
+                      </span>
+                      <span style={{ fontSize: '1rem', fontWeight: 700, color: '#1e293b' }}>
+                        {item.prevTotal.toLocaleString()}
+                      </span>
+                    </div>
+
+                    <div style={{  
+                      display: 'flex',  
+                      justifyContent: 'space-between',  
+                      alignItems: 'center',
+                      marginBottom: '12px'
+                    }}>
+                      <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#475569' }}>
+                        Valor actual:
+                      </span>
+                      <span style={{ fontSize: '1rem', fontWeight: 700, color: '#1e293b' }}>
+                        {item.currTotal.toLocaleString()}
+                      </span>
+                    </div>
+
+                    <div style={{  
+                      background: 'white',
+                      borderRadius: '10px',
+                      padding: '12px',
+                      textAlign: 'center',
+                      boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+                    }}>
+                      <div style={{  
+                        fontSize: '0.75rem',  
+                        fontWeight: 700,  
+                        color: '#64748b',
+                        marginBottom: '6px',
+                        letterSpacing: '1px'
+                      }}>
+                        {item.cambio >= 0 ? '📈 INCREMENTO' : '📉 REDUCCIÓN'}
+                      </div>
+                      <div style={{  
+                        fontSize: '2.2rem',  
+                        fontWeight: 900,  
+                        color: item.cambio >= 0 ? '#dc2626' : '#059669',
+                        lineHeight: '1',
+                        textShadow: '1px 1px 2px rgba(0,0,0,0.1)'
+                      }}>
+                        {item.cambio >= 0 ? '+' : ''}{item.cambio.toFixed(2)}%
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div style={{  
+                marginTop: '24px',  
+                padding: '16px 20px',  
+                background: 'linear-gradient(135deg, #eff6ff, #dbeafe)',  
+                borderRadius: '12px',  
+                border: '2px solid #93c5fd',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px'
+              }}>
+                <div style={{  
+                  background: '#3b82f6',  
+                  borderRadius: '50%',  
+                  width: '40px',  
+                  height: '40px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '1.2rem'
+                }}>
+                  ℹ️
+                </div>
+                <div style={{ flex: 1 }}>
+                  <p style={{ color: '#1e40af', fontSize: '0.9rem', margin: 0, fontWeight: 600, lineHeight: '1.5' }}>
+                    <strong>Interpretación:</strong> Los valores marcados con ⚡ son predicciones calculadas mediante regresión lineal.  
+                    Las tarjetas rojas indican aumentos en los casos, mientras que las verdes muestran reducciones comparadas con el período anterior.
+                  </p>
+                </div>
+              </div>
+            </>
+          );
+        })()}
+      </section>
+      
+      </div>
+      
+      <style>{`
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+        button:hover:not(:disabled) {
+          transform: translateY(-2px);
+        }
+        button:active:not(:disabled) {
+          transform: translateY(0);
+        }
+      `}</style>
+    </div>
+  );
+};
+
+export default OaxacaCovidSimulator;

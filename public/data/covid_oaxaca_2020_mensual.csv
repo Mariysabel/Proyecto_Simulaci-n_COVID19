@@ -1,0 +1,97 @@
+Region;Mes;Casos Confirmados;Casos Sospechosos;Recuperaciones;Defunciones
+Valles Centrales;Enero;360;320;314;28
+Valles Centrales;Febrero;1745;80;1423;43
+Valles Centrales;Marzo;1147;391;1066;44
+Valles Centrales;Abril;1614;229;1414;12
+Valles Centrales;Mayo;1100;179;1053;47
+Valles Centrales;Junio;1358;190;1188;50
+Valles Centrales;Julio;1010;129;903;53
+Valles Centrales;Agosto;314;350;284;50
+Valles Centrales;Septiembre;497;315;427;8
+Valles Centrales;Octubre;1947;205;1815;54
+Valles Centrales;Noviembre;1567;118;1377;32
+Valles Centrales;Diciembre;278;241;254;13
+Istmo;Enero;1860;310;1793;27
+Istmo;Febrero;786;366;691;25
+Istmo;Marzo;1632;116;1341;42
+Istmo;Abril;1056;165;965;17
+Istmo;Mayo;1892;203;1781;39
+Istmo;Junio;1460;84;1374;22
+Istmo;Julio;983;331;851;54
+Istmo;Agosto;718;133;591;42
+Istmo;Septiembre;1698;119;1360;48
+Istmo;Octubre;1616;323;1486;41
+Istmo;Noviembre;698;323;612;32
+Istmo;Diciembre;1223;63;1002;12
+Costa;Enero;991;283;872;52
+Costa;Febrero;1217;77;1104;47
+Costa;Marzo;1217;243;1089;48
+Costa;Abril;747;260;653;6
+Costa;Mayo;1968;125;1711;59
+Costa;Junio;1736;62;1406;17
+Costa;Julio;1740;148;1478;28
+Costa;Agosto;1391;94;1298;35
+Costa;Septiembre;1992;282;1731;27
+Costa;Octubre;1665;162;1338;14
+Costa;Noviembre;391;81;360;43
+Costa;Diciembre;1031;300;912;13
+Mixteca;Enero;1888;103;1733;32
+Mixteca;Febrero;1003;108;853;25
+Mixteca;Marzo;1430;270;1231;57
+Mixteca;Abril;357;169;343;11
+Mixteca;Mayo;859;368;789;30
+Mixteca;Junio;678;317;632;58
+Mixteca;Julio;670;300;587;45
+Mixteca;Agosto;690;77;657;10
+Mixteca;Septiembre;429;209;357;44
+Mixteca;Octubre;750;333;622;36
+Mixteca;Noviembre;1033;349;959;32
+Mixteca;Diciembre;1495;282;1355;28
+Sierra Norte;Enero;452;254;411;39
+Sierra Norte;Febrero;351;315;283;27
+Sierra Norte;Marzo;523;222;447;41
+Sierra Norte;Abril;460;287;413;10
+Sierra Norte;Mayo;1628;109;1558;59
+Sierra Norte;Junio;1245;206;1121;24
+Sierra Norte;Julio;730;57;702;27
+Sierra Norte;Agosto;1068;213;869;48
+Sierra Norte;Septiembre;696;220;614;29
+Sierra Norte;Octubre;1888;106;1662;36
+Sierra Norte;Noviembre;1653;143;1415;34
+Sierra Norte;Diciembre;1137;347;913;29
+Sierra Sur;Enero;854;339;813;34
+Sierra Sur;Febrero;452;155;369;35
+Sierra Sur;Marzo;1398;285;1185;18
+Sierra Sur;Abril;1386;305;1289;44
+Sierra Sur;Mayo;777;87;742;58
+Sierra Sur;Junio;614;132;549;7
+Sierra Sur;Julio;1184;179;1114;30
+Sierra Sur;Agosto;1654;387;1591;22
+Sierra Sur;Septiembre;1342;151;1191;54
+Sierra Sur;Octubre;660;396;546;56
+Sierra Sur;Noviembre;1159;65;1012;58
+Sierra Sur;Diciembre;1986;103;1841;54
+Papaloapan;Enero;1722;361;1639;11
+Papaloapan;Febrero;1133;214;1055;22
+Papaloapan;Marzo;804;281;694;53
+Papaloapan;Abril;370;307;312;46
+Papaloapan;Mayo;209;377;175;6
+Papaloapan;Junio;420;73;346;50
+Papaloapan;Julio;1544;112;1392;44
+Papaloapan;Agosto;1774;65;1512;15
+Papaloapan;Septiembre;1996;322;1926;32
+Papaloapan;Octubre;1101;201;883;12
+Papaloapan;Noviembre;513;130;421;5
+Papaloapan;Diciembre;1419;389;1257;11
+Cañad;Enero;1869;292;1679;27
+Cañad;Febrero;559;352;515;49
+Cañad;Marzo;351;308;288;28
+Cañad;Abril;422;248;366;56
+Cañad;Mayo;1951;155;1722;32
+Cañad;Junio;1393;159;1182;57
+Cañad;Julio;1928;373;1550;37
+Cañad;Agosto;1199;101;980;39
+Cañad;Septiembre;1501;99;1307;5
+Cañad;Octubre;1939;108;1858;37
+Cañad;Noviembre;1528;331;1343;39
+Cañad;Diciembre;1612;346;1319;5
