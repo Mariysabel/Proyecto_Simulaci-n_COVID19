@@ -240,5 +240,5 @@ Este proyecto no solo funcionó como un ejercicio de simulación computacional, 
 ## 12. Integrantes del Proyecto
 
 * Angel de Jesús Méndez García
-* Santiago Emmanuel Pérez Jiménez
+* Santiago Enmanuel Pérez Jiménez
 * María Isabel Pérez Cruz
