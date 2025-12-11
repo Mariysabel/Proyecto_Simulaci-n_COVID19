@@ -1,4 +1,4 @@
-# 🦠 Simulador Epidemiológico COVID-19 – Oaxaca (2020–2023)
+# Simulador Epidemiológico COVID-19 – Oaxaca (2020–2023)
 
 ![Badge Tecnologías](https://img.shields.io/badge/React-61DAFB?style=for-the-badge&logo=react&logoColor=white)
 ![Badge Lenguaje](https://img.shields.io/badge/JavaScript-F7DF1E?style=for-the-badge&logo=javascript&logoColor=black)
@@ -99,7 +99,7 @@ A continuación, se muestran las vistas principales de la aplicación, destacand
 ### 5.1 Interfaz Principal y Carga de Datos
 Muestra el dashboard inicial y la sección donde el usuario interactúa para cargar el conjunto de datos CSV.
 <p align="center">
-  <img src="imagenes/interfaz principal.png" alt="Interfaz Principal y Carga de Datos" width="800"/>
+  <img src="imagenes/Interfaz_1.png" alt="Interfaz Principal y Carga de Datos" width="800"/>
 </p>
 <p align="center">
   *Figura 1: Vista del dashboard inicial. Se utilizan iconos de Lucide React (Upload, Settings, Database) para la gestión del sistema.*
@@ -108,7 +108,11 @@ Muestra el dashboard inicial y la sección donde el usuario interactúa para car
 ### 5.2 Mapa Interactivo y Gráfica de Tendencias
 Esta sección visualiza los casos por región mediante colorimetría y ofrece un resumen de la evolución de las métricas clave.
 <p align="center">
-  <img src="imagenes/mapa interactivo.png" alt="Mapa Interactivo y Gráfica de Tendencias" width="800"/>
+  <img src="imagenes/Interfaz_3.png" alt="Mapa Interactivo" width="800"/>
+</p>
+<p align="center">
+   <p align="center">
+  <img src="imagenes/Interfaz_2.png" alt="Gráfica de Tendencias" width="800"/>
 </p>
 <p align="center">
   *Figura 2: Mapa de Oaxaca mostrando la concentración regional de casos y la gráfica de línea que detalla la tendencia temporal.*
@@ -117,24 +121,15 @@ Esta sección visualiza los casos por región mediante colorimetría y ofrece un
 ### 5.3 Comparación Real vs Predicción
 Detalle de las proyecciones futuras (Base, Optimista, Pesimista) y su contraste con los datos reales, incluyendo el cálculo del coeficiente R².
 <p align="center">
-  <img src="imagenes/3. comparacion prediccion.png" alt="Comparación de Predicción y Escenarios" width="800"/>
+  <img src="imagenes/Interfaz_4.png" alt="Comparación de Predicción y Escenarios" width="800"/>
 </p>
 <p align="center">
   *Figura 3: Gráfica comparativa que utiliza Recharts (LineChart) para diferenciar las tendencias de casos reales (línea sólida) contra los escenarios predichos (líneas discontinuas).*
 </p>
 
-### 5.4 Análisis de Precisión
-Métricas de validación detalladas, incluyendo los errores y la interpretación de las tarjetas de resultados.
-<p align="center">
-  <img src="imagenes/4. analisis de precision.png" alt="Análisis de Precisión y Tarjetas de Resultados" width="800"/>
-</p>
-<p align="center">
-  *Figura 4: Se muestra el resultado del R² y tarjetas informativas que indican variaciones interanuales (rojo: aumento, verde: reducción) y una nota aclaratoria sobre las predicciones con el símbolo ⚡.*
-</p>
-
 ---
 
-## 7. 🛠️ Tecnologías Utilizadas
+## 7. Tecnologías Utilizadas
 
 * **React.js** (Framework principal)
 * **JavaScript** (Lenguaje de programación)
@@ -172,7 +167,7 @@ Crea una versión optimizada para producción en la carpeta `build`.
 Los archivos se minifican y están listos para desplegar en cualquier servidor web estático.
 Más info en la sección de deployment. 
 
-## 11. 🚀 Cómo Ejecutar el Proyecto
+## 11. Cómo Ejecutar el Proyecto
 
 1.  **Clonar el repositorio**
     ```bash
