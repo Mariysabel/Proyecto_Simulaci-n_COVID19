@@ -5,6 +5,12 @@
 ![Badge Librerías](https://img.shields.io/badge/Recharts-8884d8?style=for-the-badge&logo=react)
 ![Badge Datos](https://img.shields.io/badge/CSV_Data-47834C?style=for-the-badge&logo=csv)
 
+## Integrantes del Proyecto
+
+* Angel de Jesús Méndez García
+* Santiago Enmanuel Pérez Jiménez
+* María Isabel Pérez Cruz
+
 Este proyecto implementa un simulador epidemiológico interactivo para analizar la evolución del **COVID-19** en el estado de **Oaxaca**. Utiliza **React**, procesamiento de archivos CSV, gráficas dinámicas y un **modelo SIRD discretizado** para estimar contagios, recuperaciones y defunciones.
 
 El sistema permite visualizar datos reales, generar predicciones mediante regresión lineal y comparar escenarios epidemiológicos a nivel regional, sirviendo como una herramienta de apoyo en la toma de decisiones y el análisis exploratorio en salud pública.
@@ -236,9 +242,3 @@ Este proyecto no solo funcionó como un ejercicio de simulación computacional, 
 * **Herramienta Funcional:** El simulador es un sistema modular y funcional construido con React, cumpliendo con los requisitos de la ingeniería de software moderna y la visualización de datos.
 * **Impacto Regional:** El análisis segmentado por las ocho regiones de Oaxaca demostró la utilidad de la desagregación de datos. Esto es fundamental para identificar focos de alta incidencia (como Valles Centrales) y priorizar recursos de salud pública de manera efectiva.
 * **Potencial Educativo:** En esencia, el sistema sirve como una **herramienta educativa** de alto valor, permitiendo a estudiantes y analistas interactuar con las variables del modelo SIRD y observar de primera mano cómo las tasas de transmisión y recuperación impactan la dinámica de una epidemia.
-
-## 12. Integrantes del Proyecto
-
-* Angel de Jesús Méndez García
-* Santiago Enmanuel Pérez Jiménez
-* María Isabel Pérez Cruz
