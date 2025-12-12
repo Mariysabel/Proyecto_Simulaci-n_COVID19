@@ -18,7 +18,7 @@ El simulador fue desarrollado como una herramienta computacional para el anális
 1.  **Análisis Temporal y Regional:** Estudiar la **evolución mensual** del COVID-19 en Oaxaca, contrastando las tendencias entre las ocho regiones del estado.
 2.  **Modelado Híbrido:** Aplicar un **modelo SIRD discreto** para la simulación de las transiciones epidemiológicas, complementado con el uso de **regresión lineal** para la proyección de tendencias a corto y mediano plazo.
 3.  **Generación de Escenarios:** Cuantificar el impacto de diferentes condiciones (optimista, base, pesimista) mediante la predicción estadística.
-4.  **Visualización Interactiva:** Ofrecer una interfaz que facilite la interpretación de datos mediante **mapas de calor** (colorimetría) y **gráficas comparativas** en tiempo real.
+4.  **Visualización Interactiva:** Ofrecer una interfaz que facilite la interpretación de datos mediante (colorimetría) y **gráficas comparativas**.
 
 Se integran datos históricos de las **ocho regiones** del estado, que son cruciales para el análisis segmentado: Valles Centrales, Istmo, Costa, Mixteca, Sierra Norte, Sierra Sur, Cañada y Papaloapan.
 
@@ -64,7 +64,7 @@ El sistema está construido como una **SPA (Single Page Application)** utilizand
 
 #### 3. Visualización (`MapView.js` / `Charts.js`)
 * **Responsabilidad:** Renderizar los resultados de forma intuitiva.
-* **`MapView`:** Componente encargado de la representación geográfica de Oaxaca. Utiliza **colorimetría** para reflejar la densidad de los casos confirmados, permitiendo una rápida identificación de las regiones con mayor incidencia (ej. Valles Centrales).
+* **`MapView`:** Componente encargado de la representación geográfica de Oaxaca. Utiliza **colorimetría** para reflejar la region seleccionada en ese momento. (ej. Valles Centrales).
 * **`Charts`:** Utiliza la librería **Recharts** para crear gráficas de alto rendimiento:
     * **LineChart:** Para series de tiempo (tendencias de Casos, Recuperaciones, Defunciones).
     * **BarChart:** Para comparaciones regionales y mensuales.
